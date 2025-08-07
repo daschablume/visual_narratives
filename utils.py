@@ -5,6 +5,7 @@ import re
 import time
 
 import pandas as pd
+# TODO: rewrite Relatio funcs into my own funcs
 from relatio import build_graph, draw_graph
 import spacy
 from spacy.cli import download as spacy_download
@@ -27,7 +28,7 @@ def read_tsv(path: str) -> pd.DataFrame:
     # Check if any row in Labels column needs JSON cleaning
     if df['Labels'].str.contains('json|```').any():
         df['Labels'] = df['Labels'].apply(_clean_json_string)
-        # TODO: 65 out of 1000 have different format (strings), clean later
+        # TODO2: 65 out of 1000 have different format (strings), clean later
         string_mask = df['Labels'].apply(lambda x: isinstance(x, str))
         return df[~string_mask].reset_index(drop=True)
     return df
@@ -141,21 +142,3 @@ class Preprocessor:
             df = pd.read_csv(output_path)
 
         return df
-
-
-def build_save_graph(roles: list, path):
-    print('Building the graph')
-    G = build_graph(
-        roles, 
-        top_n = 100, 
-        prune_network = False
-    )
-    print('Drawing the graph')
-    draw_graph(
-        G,
-        notebook = True,
-        show_buttons = False,
-        width="1600px",
-        height="1000px",
-        output_filename = path
-    )

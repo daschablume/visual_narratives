@@ -1,4 +1,3 @@
-# todo: delete 
 import os
 
 import pandas as pd
@@ -6,15 +5,14 @@ from relatio import SRL, extract_roles
 
 from utils import read_tsv, Preprocessor, build_save_graph
 
-OUTPUT_DIR = '/Users/macuser/Documents/visual-narratives/first_att'
+OUTPUT_DIR = '/Users/macuser/Documents/visual-narratives/narr4'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# NB: this code is relevant only for narr.tsv (not for narr_2.tsv)
 PROCESSOR = Preprocessor()
 
-df = read_tsv(path='prompts/narr.tsv')
+df = read_tsv(path='prompts/prompt4.tsv')
 
-df_sententes = PROCESSOR.split_into_sentences(df)
+df_sentences = PROCESSOR.split_into_sentences(df)
 
 SRL_MODEL = SRL(
     path = "https://storage.googleapis.com/allennlp-public-models/openie-model.2020.03.26.tar.gz",
@@ -22,7 +20,7 @@ SRL_MODEL = SRL(
     cuda_device = -1
 )
 
-srl_res = SRL_MODEL(df_sententes['sentence'], progress_bar=True)
+srl_res = SRL_MODEL(df_sentences['sentence'], progress_bar=True)
 roles, _ = extract_roles(
     srl_res, 
     used_roles = ["ARG0","B-V","B-ARGM-NEG","B-ARGM-MOD","ARG1","ARG2"],
