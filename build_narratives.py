@@ -1,8 +1,6 @@
 import os
 
-import pandas as pd
-
-from clustering.main import clusterize_srl, update_roles_with_clusters
+from clustering.orchestrator import clusterize_srl, update_roles_with_clusters
 from create_graph import create_graph, draw_graph, save_graph_to_json
 from srl import predict_roles
 from utils import read_tsv, Preprocessor
@@ -11,8 +9,9 @@ from utils import read_tsv, Preprocessor
 OUTPUT_DIR = 'experiments'
 
 
-def main(output_dir="prompt_4_all_roles", input_file='prompts/prompt4.tsv'):
+def main(input_file='prompts/prompt4.tsv', output_dir="prompt_4_all_roles"):
     output_dir = os.path.join(OUTPUT_DIR, output_dir)
+    os.makedirs(output_dir, exist_ok=True)
     PROCESSOR = Preprocessor()
 
     # TODO: make sure the input is a TSV or change the func to be able to read CSV also
@@ -39,3 +38,10 @@ def main(output_dir="prompt_4_all_roles", input_file='prompts/prompt4.tsv'):
     save_graph_to_json(graph, path=os.path.join(output_dir, 'graph.json'))
 
     return graph
+
+
+if __name__ == "__main__":
+    # Example usage
+    main(input_file='prompts/narr.tsv', output_dir="prompt_2_narratives")
+
+

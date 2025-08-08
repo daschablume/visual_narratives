@@ -2,30 +2,26 @@ import os
 
 import pandas as pd
 
-from clusterize import (
+from .clusterize import (
     replace_roles_with_clusterized_labels,
     load_lst_from_saved_txt,
     create_manual_clustering_with_batches
 )
-from create_graph import create_graph
-
-from clusterize import (
-    create_manual_clustering_with_batches
-)
-
-OUTPUT_FOLDER = f'../experiments'
 
 
-def clusterize_srl(folder_path):
+def clusterize_srl(folder_path: str):
     '''
-    Input: path to the folder with roles.csv file and path to the folder where to save the results.
-    For now, assumes that the input file is called "roles.csv" and in the same directory as the output folders
-    with roles.
-    Also assumes that all the results are saved in the OUTPUT_FOLDER, which now is set to 'experiments' 
-         <= one level up from the current directory
+    A wrapper function to clusterize roles from the roles.csv file.
+    Iterates through each role column in the DataFrame and applies clustering to each role.
+    Creates an inner folder `clusterized_roles` to store the results of clustering.
+    Creates a separate folder for each role (inside `clusterized_roles`).
+
+    Args:
+        folder_path (str): Path to the folder containing the roles.csv file.
     '''
-    inner_folder = os.path.join(OUTPUT_FOLDER, folder_path)
-    roles_df = pd.read_csv(os.path.join(inner_folder, 'roles.csv'))
+    roles_df = pd.read_csv(os.path.join(folder_path, 'roles.csv'))
+    inner_folder = os.path.join(folder_path, 'clusterized_roles')
+    os.makedirs(inner_folder, exist_ok=True)
 
     for column in roles_df.columns:
         if 'ARG' not in column and 'V' not in column:
@@ -41,15 +37,19 @@ def clusterize_srl(folder_path):
 
 def update_roles_with_clusters(folder_path):
     '''
-    Input: path to the folder with roles.csv file and path to the folder where to save the results.
-    For now, assumes that the input file is called "roles.csv" and in the same directory as the output folders
-    with roles.
-    Also assumes that all the results are saved in the OUTPUT_FOLDER, which now is set to 'experiments' 
-         <= one level up from the current directory
+    A wrapper function to update roles with clusterized labels.
+    Reads the roles.csv file and replaces each role with its corresponding clusterized label.
+    For clusterized labels, iterates over each folder inside `clusterized_roles` 
+        and updates the roles DataFrame.
+    
+    Args:
+        folder_path (str): Path to the folder containing the `roles.csv` file and `clusterized_roles/`.
+
+    Returns:
+        pd.DataFrame: Updated roles DataFrame with clusterized labels.
     '''
-    # Update roles_df with clusterized roles
-    inner_folder = os.path.join(OUTPUT_FOLDER, folder_path)
-    updated_roles_df = pd.read_csv(f'{inner_folder}/roles.csv')
+    updated_roles_df = pd.read_csv(f'{folder_path}/roles.csv')
+    inner_folder = os.path.join(folder_path, 'clusterized_roles')
     updated_roles_df[['sentence_lst', 'ordered_roles']] = load_lst_from_saved_txt(
         updated_roles_df, ['sentence_lst', 'ordered_roles'])
     for column in updated_roles_df.columns:
@@ -65,7 +65,7 @@ def update_roles_with_clusters(folder_path):
 
         updated_roles_df = replace_roles_with_clusterized_labels(column, resolved_df, updated_roles_df)
     
-    updated_roles_df.to_csv(os.path.join(inner_folder, 'updated_roles.csv'), index=False)
+    updated_roles_df.to_csv(os.path.join(folder_path, 'updated_roles.csv'), index=False)
     return updated_roles_df
 
 

@@ -1,12 +1,9 @@
 import csv
 import json
-import os
 import re
 import time
 
 import pandas as pd
-# TODO: rewrite Relatio funcs into my own funcs
-from relatio import build_graph, draw_graph
 import spacy
 from spacy.cli import download as spacy_download
 from tqdm import tqdm
