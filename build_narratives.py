@@ -1,55 +1,41 @@
 import os
 
 import pandas as pd
-from relatio import SRL, extract_roles
 
-from utils import read_tsv, Preprocessor, build_save_graph
-
-OUTPUT_DIR = '/Users/macuser/Documents/visual-narratives/narr4'
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-PROCESSOR = Preprocessor()
-
-df = read_tsv(path='prompts/prompt4.tsv')
-
-df_sentences = PROCESSOR.split_into_sentences(df)
-
-SRL_MODEL = SRL(
-    path = "https://storage.googleapis.com/allennlp-public-models/openie-model.2020.03.26.tar.gz",
-    batch_size = 10,
-    cuda_device = -1
-)
-
-srl_res = SRL_MODEL(df_sentences['sentence'], progress_bar=True)
-roles, _ = extract_roles(
-    srl_res, 
-    used_roles = ["ARG0","B-V","B-ARGM-NEG","B-ARGM-MOD","ARG1","ARG2"],
-    only_triplets = True,
-    progress_bar = True
-)
-
-# postprocessing of roles is skipped
-
-build_save_graph(roles, path=os.path.join(OUTPUT_DIR, 'network_of_narratives.html'))
+from clustering.main import clusterize_srl, update_roles_with_clusters
+from create_graph import create_graph, draw_graph, save_graph_to_json
+from srl import predict_roles
+from utils import read_tsv, Preprocessor
 
 
-### TODO1: track the id of docs in the roles somehow
+OUTPUT_DIR = 'experiments'
 
-### TODO2: Activists in Madrid release green balloons symbolizing a call for climate action. =>
-### Activists in Madrid => release => green. The rest is cropped! Not good.
 
-# here => clean roles a bit
+def main(output_dir="prompt_4_all_roles", input_file='prompts/prompt4.tsv'):
+    output_dir = os.path.join(OUTPUT_DIR, output_dir)
+    PROCESSOR = Preprocessor()
 
-roles_df = pd.DataFrame(roles)
+    # TODO: make sure the input is a TSV or change the func to be able to read CSV also
+    df = read_tsv(input_file)
 
-arg0_counts = roles_df['ARG0'].value_counts()
-roles_df['arg0_frequency'] = roles_df['ARG0'].map(arg0_counts)
+    df_sentences = PROCESSOR.split_into_sentences(
+        df, output_path=os.path.join(output_dir, 'sentences.csv'))
 
-roles_df = roles_df.sort_values(['arg0_frequency', 'ARG0'], ascending=False)
+    roles_df = predict_roles(df_sentences)
 
-arg0_to_exclude = ['The image', 'The infographic', 'The logo', 'The slide', 'The poster', 'The graphic']
-clean_roles_df = roles_df[~roles_df['ARG0'].isin(arg0_to_exclude)]
-# convert back to a list of dict
-clean_roles = clean_roles_df.to_dict(orient='records')
+    roles_df.to_csv(os.path.join(output_dir, 'roles.csv'), index=False)
+    print(f"Roles saved to {os.path.join(output_dir, 'roles.csv')}")
 
-build_save_graph(clean_roles, path=os.path.join(OUTPUT_DIR, 'clean_narratives.html'))
+    # TODO 2: clean a bit how the folders are created + make it more intuitive for the user;
+    #         folders should be named from one place, now they are here and in clustering.main
+    #         maybe! write a wrapper for two clustering functions
+    clusterize_srl(output_dir)
+    print(f"Roles clustered and saved to {output_dir}")
+    updated_roles_df = update_roles_with_clusters(output_dir)
+    print(f"Roles updated with clusters and saved to {output_dir}")
+
+    graph = create_graph(updated_roles_df)
+    draw_graph(graph, output_filename=os.path.join(output_dir, 'network_of_narratives.html'))
+    save_graph_to_json(graph, path=os.path.join(output_dir, 'graph.json'))
+
+    return graph

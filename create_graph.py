@@ -1,4 +1,5 @@
 from collections import defaultdict
+import json
 
 import networkx as nx
 import pandas as pd
@@ -135,4 +136,15 @@ def sentences_with_node(graph, node):
     '''Find all sentences containing a specific node'''
     return graph.nodes[node].get('sentence_ids', []) if node in graph else []
 
- 
+
+def save_graph_to_json(graph, path):
+    data = nx.node_link_data(graph, edges="edges")
+    with open(path, 'w') as f:
+        json.dump(data, f, indent=4)
+
+
+def read_graph_from_json(path):
+    with open(path, 'r') as f:
+        data = json.load(f)
+    return nx.node_link_graph(data, edges="edges")
+    
