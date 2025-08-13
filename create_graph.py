@@ -59,6 +59,61 @@ def create_graph(df: pd.DataFrame):
     return G
 
 
+def create_graph_srl(df: pd.DataFrame):
+    # TODO: check if I preserve the weights
+
+    G = nx.MultiDiGraph()
+
+    node2metadata = defaultdict(lambda: {'sentence_ids': set(), 'image_ids': set()})
+
+    for _, row in df.iterrows():
+        sentence_id = row['sentence_id']
+        image_id = row['id']
+        parsed_labels = row['parsed_labels']
+        parsed_sentence = row['parsed_sentence']
+        pointer1, pointer2 = 0, 1
+        end_list = len(parsed_labels)
+        
+        while pointer2 < end_list:
+            edge_label = ''
+            role2 = parsed_labels[pointer2]
+            phrase1, phrase2 = parsed_sentence[pointer1], parsed_sentence[pointer2]
+            
+            # I assume here that the first role is always a noun phrase (NP)
+            if role2.startswith('V'):
+                edge_label = phrase2
+                pointer2 += 1
+                if pointer2 >= end_list:
+                    break
+                phrase2 = parsed_sentence[pointer2]
+                pointer1 += 1  # jump over the verb
+            
+            node1, node2 = phrase1, phrase2
+            
+            # Add sentence_id and image_id to both nodes' metadata
+            for node in [node1, node2]:
+                node2metadata[node]['sentence_ids'].add(sentence_id)
+                node2metadata[node]['image_ids'].add(image_id)
+
+            G.add_edge(
+                node1,
+                node2,
+                label=edge_label,
+                hidden=False,
+                sentence_id=sentence_id,  # Edge-level metadata
+                image_id=image_id
+            )
+
+            pointer1 += 1
+            pointer2 += 1
+
+    for node, metadata in node2metadata.items():
+        if node in G:
+            G.nodes[node]['sentence_ids'] = list(metadata['sentence_ids'])
+            G.nodes[node]['image_ids'] = list(metadata['image_ids'])
+    
+    return G
+
 def draw_graph(
     networkx_graph,
     notebook=True,
