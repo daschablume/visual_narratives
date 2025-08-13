@@ -25,9 +25,6 @@ def main(input_file='prompts/prompt4.tsv', output_dir="prompt_4_all_roles"):
     roles_df.to_csv(os.path.join(output_dir, 'roles.csv'), index=False)
     print(f"Roles saved to {os.path.join(output_dir, 'roles.csv')}")
 
-    # TODO 2: clean a bit how the folders are created + make it more intuitive for the user;
-    #         folders should be named from one place, now they are here and in clustering.main
-    #         maybe! write a wrapper for two clustering functions
     clusterize_srl(output_dir)
     print(f"Roles clustered and saved to {output_dir}")
     updated_roles_df = update_roles_with_clusters(output_dir)

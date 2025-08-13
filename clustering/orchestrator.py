@@ -4,9 +4,9 @@ import pandas as pd
 
 from .clusterize import (
     replace_roles_with_clusterized_labels,
-    load_lst_from_saved_txt,
     create_manual_clustering_with_batches
 )
+from utils import load_lst_from_saved_txt
 
 
 def clusterize_srl(folder_path: str):
