@@ -2,8 +2,10 @@ import os
 
 import pandas as pd
 
-from clustering.orchestrator_synt import clusterize_srl, update_sentences_with_clusters
-from create_graph import create_graph, draw_graph, save_graph_to_json
+from clustering.orchestrator_synt import (
+    clusterize_srl, update_sentences_with_clusters as update_sentences_with_clusters_srl
+)
+from create_graph import create_graph_srl, draw_graph, save_graph_to_json
 from preprocessor import Preprocessor
 from utils import read_tsv, load_lst_from_saved_txt
 
@@ -52,10 +54,10 @@ def main(input_file=f'{OUTPUT_DIR}/prompt4_synt_pars/parsed_sentences_300.csv', 
 
     clusterize_srl(sentences_df, output_dir)
     print(f"Roles clustered and saved to {output_dir}")
-    updated_roles_df = update_sentences_with_clusters(sentences_df, output_dir)
+    updated_roles_df = update_sentences_with_clusters_srl(sentences_df, output_dir)
     print(f"Roles updated with clusters and saved to {output_dir}")
 
-    graph = create_graph(updated_roles_df)
+    graph = create_graph_srl(updated_roles_df)
     draw_graph(graph, output_filename=os.path.join(output_dir, 'network_of_narratives.html'))
     save_graph_to_json(graph, path=os.path.join(output_dir, 'graph.json'))
 
