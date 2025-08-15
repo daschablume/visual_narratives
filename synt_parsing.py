@@ -11,46 +11,64 @@ nlp.add_pipe("benepar", config={"model": "benepar_en3"})
 
 def traverse_tree(tree: Tree, parsed: list) -> list:
     '''
-    Simple list traversal.
     If the branch is a pure noun phrase, like "ice cover variations", it will be non chopped.
     Otherwise, it will be prased into smaller pieces.
+
+    TODO1: parse CC into two different sentences.
+    'The image shows street signs and a placard warning' =>
+      'The image shows street signs'
+      'The image shows a placard warning'
     
     Returns:
         a parsed list of tuples, like:
         [('NP', 'Presentation screen'), ('VBZ', 'displays'), ('NP', 'the logo')].
     '''
-    # TODO
-    # People hold signs advocating for climate action. 
-    #                           => ['People', 'hold', 'signs advocating for clima..']
-    # 'Young adults and teenagers' (should be split)
     for branch in tree:
-        if branch.label() == "NP" and _contains_nested_pp(branch):
+        if branch.label() == "NP" and _contains_nested(branch):
             traverse_tree(branch, parsed)
-        elif branch.label() == "VP" or branch.label() == "PP":
+        elif branch.label() in ("VP", "PP", "S", "SBAR", "ADJP"):
             traverse_tree(branch, parsed)
         else:
-            joined_leaves = ' '.join(branch.leaves())
-            parsed.append((branch.label(), joined_leaves))
+          joined_leaves = ' '.join(branch.leaves())
+          parsed.append((branch.label(), joined_leaves))
     return parsed
 
 
-def _contains_nested_pp(np_branch):
-    """Check if an NP contains nested PP structures"""
+def _contains_nested(np_branch):
+    """
+    Check if an NP contains nested structures:
+        PP (prepositional clause) or SBAR (semantic dependent clause),
+        S (dependent clause), or VP (verb phrase).
+    """
     for leaf in np_branch:
-        if leaf.label() == "PP":
+        if leaf.label() in ("PP", "SBAR", "S", "VP"):
             return True
     return False
+  
+
+def clean_parsed(parsed: list[tuple]) -> tuple[list, list]:
+    '''
+    Clean the punctuation from the parsed list.
+    '''
+    parsed_sentence = []
+    parsed_labels = []
+    for label, piece in parsed:
+        if not label.isalpha() or label == 'HYPH':
+            continue
+        parsed_labels.append(label)
+        parsed_sentence.append(piece)
+    return parsed_labels, parsed_sentence
 
 
 def parse_sentence(sentence: str) -> tuple[list, list]:
     '''
     '''
     doc = nlp(sentence)
-    tree = Tree.fromstring(next(doc.sents)._.parse_string)
+    sents = list(doc.sents)
+    if not sents:
+        return [], []
+
+    tree = Tree.fromstring(sents[0]._.parse_string)
     parsed = traverse_tree(tree, [])
-    parsed_sentence = []
-    parsed_labels = []
-    for piece, label in parsed:
-        parsed_sentence.append(piece)
-        parsed_labels.append(label)
-    return parsed_sentence, parsed_labels
+    parsed_labels, parsed_sentence = clean_parsed(parsed)
+    return parsed_labels, parsed_sentence

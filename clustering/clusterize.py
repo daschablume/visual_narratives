@@ -12,7 +12,6 @@ import spacy
 # TODO: improve lemmatization; now I call spacy for each word, which is slow
 NLP = spacy.load("en_core_web_sm")
 
-# TODO: everywhere rename "id" back to "image_id", more clear
 # TODO: get rid of Relatio
 EMBEDDING_MODEL = Embeddings(
     embeddings_type="SentenceTransformer",
@@ -335,14 +334,14 @@ def prepare_synt_df_to_clustering(df):
                 verbs_meta.append({
                     'word': lemmatized,
                     'sentence_id': row['sentence_id'],
-                    'image_id': row['id'],
+                    'image_id': row['image_id'],
                     'position_idx': idx
                 })
             elif label.startswith('NN') or label == 'NP':  # noun or noun phrase
                 np_meta.append({
                     'word': part,
                     'sentence_id': row['sentence_id'],
-                    'image_id': row['id'],
+                    'image_id': row['image_id'],
                     'position_idx': idx
                 })
     return verbs_meta, np_meta

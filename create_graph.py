@@ -6,6 +6,10 @@ import networkx as nx
 import pandas as pd
 from pyvis import network as net
 
+NOT_NODE_LABELS = (
+    'WHNP', 'TO', 'WHADVP', 'CC', 'RP', 'PRT', 'IN', 'RB', 'MD', 'DT'
+)
+
 
 def create_graph(df: pd.DataFrame):
     G = nx.MultiDiGraph()
@@ -58,16 +62,14 @@ def create_graph(df: pd.DataFrame):
     return G
 
 
-def create_graph_srl(df: pd.DataFrame):
+def create_graph_synt_parsing(df: pd.DataFrame):
     G = nx.MultiDiGraph()
-
-    # TODO1: still save punctuation for some cases
 
     node2metadata = defaultdict(lambda: {'sentence_ids': set(), 'image_ids': set()})
 
-    for row_id, row in df.iterrows():
+    for _, row in df.iterrows():
         sentence_id = row['sentence_id']
-        image_id = row['id']
+        image_id = row['image_id']
         parsed_labels = row['parsed_labels']
         parsed_sentence = row['parsed_sentence']
         pointer1, pointer2 = 0, 1
@@ -81,22 +83,21 @@ def create_graph_srl(df: pd.DataFrame):
             
             while pointer2 < end_list:
                 pos_tag = parsed_labels[pointer2]
-                if pos_tag.startswith('V'):
+                if pos_tag.startswith('V') or pos_tag == "MD":
+                    # MD = modal verb
                     edge_label = parsed_sentence[pointer2]
-                elif pos_tag.isalpha() and not parsed_labels[pointer2] in ('IN', 'CC', 'RB'):
+                elif pos_tag.isalpha() and not parsed_labels[pointer2] in NOT_NODE_LABELS:
                     break
                 else:
-                    if not edge_label and pos_tag.isalpha():
+                    if not edge_label and pos_tag != "DT":
                         # add edge label as a preposition only if it was not set by a verb
-                        # and do not set it for punctuation
+                        # and do not set it for a determiner (DT)
                         edge_label = parsed_sentence[pointer2]
-                    elif edge_label and pos_tag == "RB":
-                        # add "not", if it is a negation
+                    elif pos_tag in ("RB", "MD") or pos_tag.startswith("V"):
+                        # glue "not" and modals to a verb
                         edge_label += ' ' + parsed_sentence[pointer2]
                 pointer2 += 1
             node1, node2  = parsed_sentence[pointer1], parsed_sentence[pointer2]
-            if node1 == '.' or node2 == '.':
-                print(f"FOUND PUNCTUATION: {node1}, {node2} in row_id: {row_id}")
             pointer1 = pointer2
             pointer2 = pointer1 + 1
 
