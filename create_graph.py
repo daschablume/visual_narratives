@@ -1,14 +1,13 @@
 from collections import defaultdict
 import json
 
+import matplotlib.colors as mcolors
 import networkx as nx
 import pandas as pd
 from pyvis import network as net
 
 
 def create_graph(df: pd.DataFrame):
-    # TODO: check if I preserve the weights
-
     G = nx.MultiDiGraph()
 
     node2metadata = defaultdict(lambda: {'sentence_ids': set(), 'image_ids': set()})
@@ -60,59 +59,90 @@ def create_graph(df: pd.DataFrame):
 
 
 def create_graph_srl(df: pd.DataFrame):
-    # TODO: check if I preserve the weights
-
     G = nx.MultiDiGraph()
+
+    # TODO1: still save punctuation for some cases
 
     node2metadata = defaultdict(lambda: {'sentence_ids': set(), 'image_ids': set()})
 
-    for _, row in df.iterrows():
+    for row_id, row in df.iterrows():
         sentence_id = row['sentence_id']
         image_id = row['id']
         parsed_labels = row['parsed_labels']
         parsed_sentence = row['parsed_sentence']
         pointer1, pointer2 = 0, 1
-        end_list = len(parsed_labels)
-        
+        end_list = len(parsed_labels) - 1  # "." is always the last token
+
         while pointer2 < end_list:
             edge_label = ''
-            role2 = parsed_labels[pointer2]
-            phrase1, phrase2 = parsed_sentence[pointer1], parsed_sentence[pointer2]
+            # here I assume that the first label is always a noun phrase (NP)
+            # and all the next times the first pointer points to the NP, since
+            # pointer1 = pointer2 in the end of the loop
             
-            # I assume here that the first role is always a noun phrase (NP)
-            if role2.startswith('V'):
-                edge_label = phrase2
-                pointer2 += 1
-                if pointer2 >= end_list:
+            while pointer2 < end_list:
+                pos_tag = parsed_labels[pointer2]
+                if pos_tag.startswith('V'):
+                    edge_label = parsed_sentence[pointer2]
+                elif pos_tag.isalpha() and not parsed_labels[pointer2] in ('IN', 'CC', 'RB'):
                     break
-                phrase2 = parsed_sentence[pointer2]
-                pointer1 += 1  # jump over the verb
-            
-            node1, node2 = phrase1, phrase2
+                else:
+                    if not edge_label and pos_tag.isalpha():
+                        # add edge label as a preposition only if it was not set by a verb
+                        # and do not set it for punctuation
+                        edge_label = parsed_sentence[pointer2]
+                    elif edge_label and pos_tag == "RB":
+                        # add "not", if it is a negation
+                        edge_label += ' ' + parsed_sentence[pointer2]
+                pointer2 += 1
+            node1, node2  = parsed_sentence[pointer1], parsed_sentence[pointer2]
+            if node1 == '.' or node2 == '.':
+                print(f"FOUND PUNCTUATION: {node1}, {node2} in row_id: {row_id}")
+            pointer1 = pointer2
+            pointer2 = pointer1 + 1
+
+            # check whether this edge already exists in the graph
+            edge_found = False
+            if G.has_edge(node1, node2):
+                for _, edge_data in G[node1][node2].items():
+                    if edge_data.get("label") == edge_label:
+                        # if found and has the same label,
+                        # increment the weight and add sentence_id and image_id
+                        edge_data["weight"] += 1
+                        edge_data["sentence_ids"].add(sentence_id)
+                        edge_data["image_ids"].add(image_id)
+                        edge_found = True
+                        break
+
+            # If no matching edge found, add new edge
+            if not edge_found:
+                G.add_edge(
+                    node1,
+                    node2,
+                    label=edge_label,
+                    weight=1,
+                    sentence_ids={sentence_id},
+                    image_ids={image_id}
+                )
             
             # Add sentence_id and image_id to both nodes' metadata
             for node in [node1, node2]:
                 node2metadata[node]['sentence_ids'].add(sentence_id)
                 node2metadata[node]['image_ids'].add(image_id)
 
-            G.add_edge(
-                node1,
-                node2,
-                label=edge_label,
-                hidden=False,
-                sentence_id=sentence_id,  # Edge-level metadata
-                image_id=image_id
-            )
-
-            pointer1 += 1
-            pointer2 += 1
-
     for node, metadata in node2metadata.items():
         if node in G:
             G.nodes[node]['sentence_ids'] = list(metadata['sentence_ids'])
             G.nodes[node]['image_ids'] = list(metadata['image_ids'])
     
+    # covert sets to lists for serialization
+    for _, _, _, data in G.edges(keys=True, data=True):
+        if "sentence_ids" in data:
+            data["sentence_ids"] = list(data["sentence_ids"])
+        if "image_ids" in data:
+            data["image_ids"] = list(data["image_ids"])
+    
     return G
+
 
 def draw_graph(
     networkx_graph,
@@ -124,8 +154,6 @@ def draw_graph(
     only_physics_buttons=False,
 ):
     """
-    COPIED FROM RELATIO CODE: https://github.com/relatio-nlp/relatio
-
     This function accepts a networkx graph object,
     converts it to a pyvis network object preserving its node and edge attributes,
     and both returns and saves a dynamic network visualization.
@@ -156,7 +184,56 @@ def draw_graph(
     pyvis_graph.width = width
     pyvis_graph.height = height
 
-    # for each node and its attributes in the networkx graph
+    # Calculate weighted degree centrality and set node sizes
+    degrees = dict(networkx_graph.degree(weight='weight'))
+    max_degree = max(degrees.values())
+    degree_range = max_degree - min(degrees.values())
+    min_size = 15
+    max_size = min_size + (degree_range * 0.5)
+
+    for node in networkx_graph.nodes():
+        # Normalize degree to size range
+        normalized_size = min_size + (degrees[node] / max_degree) * (max_size - min_size)
+        networkx_graph.nodes[node]['size'] = normalized_size
+    
+    betweenness = nx.betweenness_centrality(networkx_graph, weight='weight')
+
+    # Normalize betweenness values to [0,1] for color mapping
+    if betweenness:  # Check if not empty
+        min_bet = min(betweenness.values())
+        max_bet = max(betweenness.values())
+        bet_range = max_bet - min_bet
+        
+        for node in networkx_graph.nodes():
+            # Normalize to [0,1]
+            if bet_range > 0:
+                normalized_bet = (betweenness[node] - min_bet) / bet_range
+            else:
+                normalized_bet = 0
+            
+            # Map to blue→red color
+            color = mcolors.to_hex((normalized_bet, 0, 1-normalized_bet))  # (R,G,B)
+            networkx_graph.nodes[node]['color'] = color
+    
+    # Calculate edge thickness based on weight
+    edge_weights = [edge_attrs['weight'] for _, _, edge_attrs in networkx_graph.edges(data=True)]
+    min_weight = min(edge_weights)
+    max_weight = max(edge_weights)
+    weight_range = max_weight - min_weight
+
+    min_width = 1
+    max_width = 5  # Adjust these values as needed
+
+    for source, target, edge_attrs in networkx_graph.edges(data=True):
+        # Normalize weight to width range
+        if weight_range > 0:
+            normalized_width = min_width + (
+                (edge_attrs['weight'] - min_weight) / weight_range) * (max_width - min_width)
+        else:
+            normalized_width = min_width
+        
+        edge_attrs['width'] = normalized_width
+
     for node, node_attrs in networkx_graph.nodes(data=True):
         pyvis_graph.add_node(node, **node_attrs)
 

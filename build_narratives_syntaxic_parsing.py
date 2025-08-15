@@ -3,14 +3,15 @@ import os
 import pandas as pd
 
 from clustering.orchestrator_synt import (
-    clusterize_srl, update_sentences_with_clusters as update_sentences_with_clusters_srl
+    clusterize_srl,
+    update_sentences_with_clusters as update_sentences_with_clusters_srl
 )
 from create_graph import create_graph_srl, draw_graph, save_graph_to_json
 from preprocessor import Preprocessor
 from utils import read_tsv, load_lst_from_saved_txt
 
 
-OUTPUT_DIR = 'experiments_2_models'
+OUTPUT_DIR = 'experiments3_better_graphs'
 
 
 def synt_parse_df(input_file='prompts/prompt4.tsv', output_dir="prompt4_synt_pars"):
@@ -43,7 +44,7 @@ def synt_parse_df(input_file='prompts/prompt4.tsv', output_dir="prompt4_synt_par
     return df_sentences
 
 
-def main(input_file=f'{OUTPUT_DIR}/prompt4_synt_pars/parsed_sentences_300.csv', output_dir="prompt4_synt_pars"):
+def main(input_file, output_dir):
     output_dir = os.path.join(OUTPUT_DIR, output_dir)
     os.makedirs(output_dir, exist_ok=True)
 
@@ -66,6 +67,6 @@ def main(input_file=f'{OUTPUT_DIR}/prompt4_synt_pars/parsed_sentences_300.csv', 
 
 if __name__ == "__main__":
     # Example usage
-    main(input_file='prompts/narr.tsv', output_dir="prompt_2_narratives")
-
+    main(input_file=f'{OUTPUT_DIR}/prompt1_synt_pars/parsed_sentences_300.csv', output_dir="prompt1_synt_pars")
+    main(input_file=f'{OUTPUT_DIR}/prompt4_synt_pars/parsed_sentences_300.csv', output_dir="prompt4_synt_pars")
 

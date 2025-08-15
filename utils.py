@@ -1,5 +1,6 @@
 import ast
 import json
+import os
 import re
 
 import pandas as pd
@@ -32,3 +33,15 @@ def _clean_json_string(text):
         return json.loads(text)
     except json.JSONDecodeError:
         return text
+
+ 
+def read_updated_df_srl(folder_path, file_path='updated_roles.csv'):
+    df = pd.read_csv(os.path.join(folder_path, file_path))
+    df[['parsed_labels', 'parsed_sentence']] = load_lst_from_saved_txt(
+        df, ['parsed_labels', 'parsed_sentence'])
+    return df
+ 
+
+def check_all_unique_pos_tags(df):
+    tags = df['parsed_labels'].apply(lambda x: set(x)).explode().unique()
+    return tags
