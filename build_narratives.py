@@ -12,7 +12,7 @@ from preprocessor import Preprocessor
 from utils import read_tsv, load_lst_from_saved_txt
 
 
-OUTPUT_DIR = 'experiments3_better_graphs'
+OUTPUT_DIR = '../experiments3_better_graphs'
 
 
 def synt_parse_df(input_file='prompts/prompt4.tsv', output_dir="prompt4_synt_pars"):
@@ -62,8 +62,8 @@ def main(input_file, output_dir):
     os.makedirs(output_dir, exist_ok=True)
 
     sentences_df = pd.read_csv(input_file)
-    sentences_df = sentences_df.iloc[:300]
-    print("Warning! Working with the first 300 sentences!")
+    #sentences_df = sentences_df.iloc[:300]
+    #print("Warning! Working with the first 300 sentences!")
     sentences_df[['parsed_labels', 'parsed_sentence']] = load_lst_from_saved_txt(
         sentences_df, ['parsed_labels', 'parsed_sentence'])
 
@@ -83,6 +83,6 @@ def main(input_file, output_dir):
 
 if __name__ == "__main__":
     # Example usage
-    main(input_file=f'{OUTPUT_DIR}/prompt1_synt_pars/parsed_sentences.csv', output_dir="prompt1_synt_pars")
+    main(input_file=f'{OUTPUT_DIR}/prompt1_synt_pars/parsed_sentences.csv', output_dir="prompt1_synt_pars_test")
     #main(input_file=f'{OUTPUT_DIR}/prompt4_synt_pars/parsed_sentences.csv', output_dir="prompt4_synt_pars")
 

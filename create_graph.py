@@ -108,16 +108,7 @@ def draw_graph(
     converts it to a pyvis network object preserving its node and edge attributes,
     and both returns and saves a dynamic network visualization.
 
-    Valid node attributes include:
-        "size", "value", "title", "x", "y", "label", "color".
-
-        (For more info: https://pyvis.readthedocs.io/en/latest/documentation.html#pyvis.network.Network.add_node)
-
-    Valid edge attributes include:
-        "arrowStrikethrough", "hidden", "physics", "title", "value", "width"
-
-        (For more info: https://pyvis.readthedocs.io/en/latest/documentation.html#pyvis.network.Network.add_edge)
-
+    (For more info: https://pyvis.readthedocs.io/en/latest/documentation.html#pyvis.network.Network.add_node)
 
     Args:
         networkx_graph: The graph to convert and display
@@ -140,14 +131,11 @@ def draw_graph(
     degree_range = max_degree - min(degrees.values())
     min_size = 15
     max_size = min_size + (degree_range * 0.5)
-
     for node in networkx_graph.nodes():
-        # Normalize degree to size range
         normalized_size = min_size + (degrees[node] / max_degree) * (max_size - min_size)
         networkx_graph.nodes[node]['size'] = normalized_size
-    
-    betweenness = nx.betweenness_centrality(networkx_graph, weight='weight')
 
+    betweenness = nx.betweenness_centrality(networkx_graph, weight='weight')
     # Normalize betweenness values to [0,1] for color mapping
     if betweenness:  # Check if not empty
         min_bet = min(betweenness.values())
