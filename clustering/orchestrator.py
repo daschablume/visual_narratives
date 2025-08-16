@@ -3,13 +3,14 @@ import os
 import pandas as pd
 
 from .clusterize import (
-    replace_roles_with_clusterized_labels,
-    create_manual_clustering_with_batches
+    prepare_df_to_clustering,
+    create_clusters,
+    replace_with_clusterized_labels
 )
 from utils import load_lst_from_saved_txt
 
 
-def clusterize_srl(folder_path: str):
+def process_and_cluster_phrases(df: pd.DataFrame, output_dir: str, threshold=0.7, batch_size=20000):
     '''
     A wrapper function to clusterize roles from the roles.csv file.
     Iterates through each role column in the DataFrame and applies clustering to each role.
@@ -17,55 +18,38 @@ def clusterize_srl(folder_path: str):
     Creates a separate folder for each role (inside `clusterized_roles`).
 
     Args:
+        df (pd.DataFrame): DataFrame containing syntaxically parsed sentences.
         folder_path (str): Path to the folder containing the roles.csv file.
     '''
-    roles_df = pd.read_csv(os.path.join(folder_path, 'roles.csv'))
-    inner_folder = os.path.join(folder_path, 'clusterized_roles')
-    os.makedirs(inner_folder, exist_ok=True)
-
-    for column in roles_df.columns:
-        if 'ARG' not in column and 'V' not in column:
-            continue
-        
+    verbs_meta, np_meta = prepare_df_to_clustering(df)
+    for phrase_type, phrases_meta in {'verbs_meta': verbs_meta, 'np_meta': np_meta}.items():
+        inner_folder = os.path.join(output_dir, phrase_type)
+        os.makedirs(inner_folder, exist_ok=True)
         print(f"\n{'='*60}")
-        print(f"Processing role: {column}")
-        print('='*60)
-        
-        roles = roles_df.loc[roles_df[column].notna(), [column, 'sentence_id', 'image_id']]
-        create_manual_clustering_with_batches(roles, column, inner_folder, 10000)
+        print(f"Clustering {phrase_type}...")
+        create_clusters(
+            phrases_meta, inner_folder,
+            threshold=threshold, batch_size=batch_size
+        )
 
 
-def update_roles_with_clusters(folder_path):
+def update_sentences_with_clusterized(df, output_dir):
     '''
-    A wrapper function to update roles with clusterized labels.
-    Reads the roles.csv file and replaces each role with its corresponding clusterized label.
-    For clusterized labels, iterates over each folder inside `clusterized_roles` 
-        and updates the roles DataFrame.
-    
-    Args:
-        folder_path (str): Path to the folder containing the `roles.csv` file and `clusterized_roles/`.
-
-    Returns:
-        pd.DataFrame: Updated roles DataFrame with clusterized labels.
+    A wrapper function to update sentences with clusterized labels.
     '''
-    updated_roles_df = pd.read_csv(f'{folder_path}/roles.csv')
-    inner_folder = os.path.join(folder_path, 'clusterized_roles')
-    updated_roles_df[['sentence_lst', 'ordered_roles']] = load_lst_from_saved_txt(
-        updated_roles_df, ['sentence_lst', 'ordered_roles'])
-    for column in updated_roles_df.columns:
-        if 'ARG' not in column and 'V' not in column:
-            continue
-        
+    for phrase_type in ('verbs_meta', 'np_meta'):
+        file_path = os.path.join(output_dir, phrase_type, 'clusters.csv')
+        clusters_df = pd.read_csv(file_path, sep=';')
+        clusters_df[['sentence_indices','image_indices', 'position_indices']] = load_lst_from_saved_txt(
+            clusters_df, ['sentence_indices', 'image_indices', 'position_indices']
+        )
         print(f"\n{'='*60}")
-        print(f"Updating role: {column}")
-        resolved_path = os.path.join(inner_folder, column, 'cluster_label_mapping.csv')
-        resolved_df = pd.read_csv(resolved_path, sep=";")
-        resolved_df[['image_indices', 'sentence_indices']] = load_lst_from_saved_txt(
-            resolved_df, ['image_indices', 'sentence_indices'])
-
-        updated_roles_df = replace_roles_with_clusterized_labels(column, resolved_df, updated_roles_df)
+        print(f"Updating phrase_type: {phrase_type}")
     
-    updated_roles_df.to_csv(os.path.join(folder_path, 'updated_roles.csv'), index=False)
-    return updated_roles_df
+        df = replace_with_clusterized_labels(
+            sentences_df=df, clusters_df=clusters_df)
+    
+    df.to_csv(os.path.join(output_dir, 'updated_roles.csv'), index=False)
+    return df
 
 
