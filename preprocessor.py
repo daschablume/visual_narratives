@@ -72,15 +72,10 @@ class Preprocessor:
             is written to a file row by row and then read back into a DataFrame.
 
         Returns:
-            Pandas DataFrame with a column "image_id" and a column "sentence"
+            Pandas DataFrame with all the columns which were in the input dataframe
 
         """
-        sentences = []
-        image_ids = []
-
         length = len(df)
-        # add 'id' column to extract just the id, without '.jpg' extension
-        df['id'] = df['ImageID'].str.extract(r'(\d{1,})').astype(int)
 
         spacy_docs = self.nlp.pipe(
             df["Labels"],
@@ -94,24 +89,19 @@ class Preprocessor:
         spacy_docs = tqdm(spacy_docs, total=length)
 
         if output_path is None:
+            raise NotImplementedError("For large datasets, please specify output_path")
+
+        with open(output_path, "w", newline="") as csvfile:
+            fieldnames = list(df.columns)
+            fieldnames.append('sentence')
+            writer = csv.writer(csvfile)
+            writer.writerow(fieldnames)
             for i, doc in enumerate(spacy_docs):
+                curr_row = df.iloc[i].tolist()
                 for sent in doc.sents:
-                    sentences.append(str(sent))
-                    image_ids = image_ids + [df["id"].iloc[i]]
+                    sentence = str(sent)
+                    writer.writerow([*curr_row, sentence])
 
-            df = pd.DataFrame({"id": image_ids, "sentence": sentences}, index=None)
-
-        else:
-            with open(output_path, "w", newline="") as csvfile:
-                fieldnames = ["id", "sentence"]
-                writer = csv.writer(csvfile)
-                writer.writerow(fieldnames)
-                for i, doc in enumerate(spacy_docs):
-                    for sent in doc.sents:
-                        doc_id = df["id"].iloc[i]
-                        sentence = str(sent)
-                        writer.writerow([doc_id, sentence])
-
-            df = pd.read_csv(output_path)
+        df = pd.read_csv(output_path)
 
         return df

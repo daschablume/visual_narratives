@@ -17,3 +17,4 @@ def cluster_connected_components(sim_matrix, threshold):
             clusters.append(cluster)
 
     return clusters
+
