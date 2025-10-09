@@ -2,6 +2,7 @@ from collections import defaultdict
 from copy import deepcopy
 import json
 import random
+import statistics
 
 import matplotlib.colors as mcolors
 import networkx as nx
@@ -136,9 +137,8 @@ def draw_graph(
     # Calculate weighted degree centrality and set node sizes
     degrees = dict(networkx_graph.degree(weight='weight'))
     max_degree = max(degrees.values())
-    degree_range = max_degree - min(degrees.values())
     min_size = 15
-    max_size = min_size + (degree_range * 0.5)
+    max_size = 100  # scaling leads to huge nodes
     for node in networkx_graph.nodes():
         normalized_size = min_size + (degrees[node] / max_degree) * (max_size - min_size)
         networkx_graph.nodes[node]['size'] = normalized_size
@@ -168,7 +168,7 @@ def draw_graph(
     weight_range = max_weight - min_weight
 
     min_width = 1
-    max_width = 5  # Adjust these values as needed
+    max_width = 20  # Adjust these values as needed
 
     for source, target, edge_attrs in networkx_graph.edges(data=True):
         # Normalize weight to width range
@@ -199,7 +199,44 @@ def draw_graph(
 
     # return and also save
     return pyvis_graph.show(output_filename)
-        
+
+
+def graph_with_strongest_edges(graph):
+    '''
+    Returns the graph with only the edges greater than the median of the edges weight.
+    '''
+    median_weight = statistics.median([
+        d['weight'] for u, v, k, d in graph.edges(data=True, keys=True)
+    ])
+    filtered_edges = [
+        (u, v, k) 
+        for u, v, k, d in graph.edges(data=True, keys=True) 
+        if d['weight'] > median_weight
+    ]
+    subgraph = graph.edge_subgraph(filtered_edges).copy()
+    return subgraph
+
+
+def print_narratives(node, graph):
+    print('Narratives for node:', node)
+    print('---')
+    print('In edges')
+    for source, target, data in graph.in_edges(node, data=True):
+        edge_label = data.get('label', 'no_label') 
+        edge_weight = data.get('weight', 1)
+        print(f"{source} --{edge_label}({edge_weight})--> {target}")
+    print('---')
+    print('Out edges')
+    for source, target, data in graph.out_edges(node, data=True):
+        edge_label = data.get('label', 'no_label') 
+        edge_weight = data.get('weight', 1)
+        print(f"{source} --{edge_label}({edge_weight})--> {target}")
+
+
+def make_subgraph_from_community(graph, community: set):
+    community_graph = graph.subgraph(community).copy()
+    return community_graph
+
 
 def nodes_in_sentence(graph, sentence_id):
     '''Find all nodes that appear in a specific sentence'''
@@ -264,114 +301,6 @@ def dict_to_df(name, metrics_dict):
         df = pd.DataFrame(values, columns=["term", metric])
         frames.append(df.set_index("term"))
     return pd.concat(frames, axis=1).reset_index().assign(source=name)
-
-
-def compare_basic_stats(G1, G2, name1="Graph1", name2="Graph2"):
-    stats = {
-        'Nodes': (G1.number_of_nodes(), G2.number_of_nodes()),
-        'Edges': (G1.number_of_edges(), G2.number_of_edges()),
-        'Density': (nx.density(G1), nx.density(G2)),
-        'Avg Degree': (sum(dict(G1.degree()).values())/G1.number_of_nodes(), 
-                      sum(dict(G2.degree()).values())/G2.number_of_nodes())
-    }
-    
-    for metric, (v1, v2) in stats.items():
-        print(f"{metric}: {name1}={v1:.3f}, {name2}={v2:.3f}")
-
-    nodes1, nodes2 = set(G1.nodes()), set(G2.nodes())
-    common = nodes1 & nodes2
-    only1 = nodes1 - nodes2
-    only2 = nodes2 - nodes1
-
-    print(f"Common nodes: {len(common)}/{len(nodes1 | nodes2)} total")
-    print(f"Only in {name1}: {len(only1)}, Only in {name2}: {len(only2)}")
-
-    deg1 = dict(G1.degree())
-    deg2 = dict(G2.degree())
-    top1 = sorted(deg1, key=deg1.get, reverse=True)[:10]
-    top2 = sorted(deg2, key=deg2.get, reverse=True)[:10]
-
-    print(f"Top nodes {name1}", top1)
-    print(f"Top nodes {name2}", top2)
-    print("Overlap in top 10:", len(set(top1) & set(top2)))
-
-    weights1 = [d['weight'] for _, _, d in G1.edges(data=True)]
-    weights2 = [d['weight'] for _, _, d in G2.edges(data=True)]
-
-    print(f"Avg edge weight: {name1}={np.mean(weights1):.2f}, {name2}={np.mean(weights2):.2f}")
-    print(f"Max edge weight: {name1}={max(weights1)}, {name2}={max(weights2)}")
-
-    # Top 10 overlapping nodes by degree
-    print(f"\nTop 10 overlapping nodes:")
-    common_degrees = [(node, deg1.get(node, 0), deg2.get(node, 0)) for node in common]
-    top_common = sorted(common_degrees, key=lambda x: x[1] + x[2], reverse=True)[:10]
-    for node, d1, d2 in top_common:
-        print(f"  {node}: {name1}={d1}, {name2}={d2}")
-
-    # Top 10 non-overlapping nodes
-    print(f"\nTop 10 non-overlapping nodes from {name1}:")
-    top_only1 = sorted([(n, deg1[n]) for n in only1], key=lambda x: x[1], reverse=True)[:10]
-    for node, degree in top_only1:
-        print(f"  {node}: degree={degree}")
-        
-    print(f"\nTop 10 non-overlapping nodes from {name2}:")
-    top_only2 = sorted([(n, deg2[n]) for n in only2], key=lambda x: x[1], reverse=True)[:10]
-    for node, degree in top_only2:
-        print(f"  {node}: degree={degree}")
-
-
-def compare_betweenness_triplets(G1, G2, name1="Graph1", name2="Graph2", top_n=20):
-    def get_top_betweenness_triplets(G, n=20):
-        # Calculate betweenness centrality (this is the expensive part)
-        print(f"Calculating betweenness centrality for {G.number_of_nodes()} nodes...")
-        betweenness = nx.betweenness_centrality(G, k=min(1000, G.number_of_nodes()))  # Sample for large graphs
-        
-        # Get top nodes by betweenness
-        top_bet_nodes = sorted(betweenness, key=betweenness.get, reverse=True)[:50]  # Get more candidates
-        
-        triplets = []
-        for node in top_bet_nodes:
-            # Find heaviest edge from this node
-            max_weight = 0
-            best_edge = None
-            
-            for target, edges in G[node].items():
-                # Sum weights for all edges to this target (multigraph)
-                total_weight = sum(edge_data['weight'] for edge_data in edges.values())
-                if total_weight > max_weight:
-                    max_weight = total_weight
-                    # Get the edge with highest individual weight for the label
-                    best_individual_edge = max(edges.values(), key=lambda x: x['weight'])
-                    best_edge = (target, total_weight, best_individual_edge.get('label', ''))
-            
-            if best_edge:
-                triplets.append((node, betweenness[node], best_edge[0], best_edge[1], best_edge[2]))
-        
-        # Sort by betweenness and return top n
-        triplets.sort(key=lambda x: x[1], reverse=True)
-        return triplets[:n]
-    
-    # Get triplets from both graphs
-    triplets1 = get_top_betweenness_triplets(G1, top_n)
-    triplets2 = get_top_betweenness_triplets(G2, top_n)
-    
-    print(f"\nTop {top_n} Betweenness Centrality Triplets - {name1}:")
-    for i, (node, bet, target, weight, label) in enumerate(triplets1, 1):
-        print(f"{i:2d}. {node} <{label}({weight})> {target} (betweenness: {bet:.4f})")
-    
-    print(f"\nTop {top_n} Betweenness Centrality Triplets - {name2}:")
-    for i, (node, bet, target, weight, label) in enumerate(triplets2, 1):
-        print(f"{i:2d}. {node} <{label}({weight})> {target} (betweenness: {bet:.4f})")
-    
-    # Compare overlaps
-    nodes1 = set(t[0] for t in triplets1)
-    nodes2 = set(t[0] for t in triplets2)
-    common_nodes = nodes1 & nodes2
-    
-    print(f"\nComparison:")
-    print(f"Common high-betweenness nodes: {len(common_nodes)}/{len(nodes1 | nodes2)}")
-    if common_nodes:
-        print(f"Common nodes: {list(common_nodes)}")
 
 
 def print_strongest_connections(graph, threshold = 3):
