@@ -1,11 +1,12 @@
 import ast
-from collections import Counter
+from collections import defaultdict
 import csv
 import os
 
 import pandas as pd
 from relatio.embeddings import Embeddings
-from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.decomposition import PCA
+from sklearn.cluster import AgglomerativeClustering
 import spacy
 from tqdm import tqdm
 
@@ -69,179 +70,98 @@ def prepare_df_to_clustering(df, verbs_csv_path=None, np_csv_path=None):
     return verbs_csv_path, np_csv_path
             
 
-def create_clusters_batched(input_path, save_folder_path, threshold=0.85, batch_size=15000):
-    '''
-    TODO: crappy clustering cause I almost manually add things to new files;
-    TODO1: speficy tqdm for all loops, for similarity matrix, for the clustering function
-    TODO2: please write ALL the names from the clusterized items in the final clusters.txt
-    (now I write the names from pre-clusters only)
-    '''
-    os.makedirs(save_folder_path, exist_ok=True)
+def emdeb_and_cluster(
+    phrases: list[str], pca_args: dict = {'n_components': 50, 'svd_solver': 'full'},
+    threshold: int = 0.7
+) -> list[list[int]]:
+    vectors = EMBEDDING_MODEL.get_vectors(phrases, progress_bar=True)
+    # reduce dimensionality here with PCA
+    pca_args = {'n_components': 50, 'svd_solver': 'full'}  # ATTENTION: n_components == 50
+    pca_model = PCA(**pca_args).fit(vectors)
+    training_vectors = pca_model.transform(vectors)
 
-    # Paths for intermediate pre-cluster storage
-    pre_clusters_path = os.path.join(save_folder_path, 'pre_clusters.csv')
-    clusters_words_path = os.path.join(save_folder_path, 'clusters.txt')
-
-    total_rows = sum(1 for _ in open(input_path)) - 1
-    total_batches = (total_rows - 1) // batch_size + 1
-
-    global_cluster_counter = 0
-
-    # -----------------------------
-    # Step 1: Process CSV in batches
-    # -----------------------------
-    for i, batch in enumerate(pd.read_csv(input_path, chunksize=batch_size)):
-        print(f'Processing batch {i+1} of {total_batches}')
-        batch_phrases = batch['word'].tolist()
-        batch_vectors = EMBEDDING_MODEL.get_vectors(batch_phrases, progress_bar=True)
-        assert len(batch_vectors) == len(batch_phrases)
-
-        sim_matrix = cosine_similarity(batch_vectors)
-        print('Grouping vectors')
-        batch_groups = cluster_connected_components(sim_matrix, threshold)
-
-        batch_index2phrase = dict(zip(batch.index, batch['word']))
-        batch_index2sentence = dict(zip(batch.index, batch['sentence_id']))
-        batch_index2position = dict(zip(batch.index, batch['position_idx']))
-
-        remapped_groups = [
-            [batch.index[idx] for idx in group]
-            for group in batch_groups
-        ]
-
-        # Save pre-cluster info immediately (no memory storage)
-        with open(pre_clusters_path, 'a') as f:
-            for group in remapped_groups:
-                phrases_in_group = [batch_index2phrase[idx] for idx in group]
-                sentence_indices = [batch_index2sentence[idx] for idx in group]
-                position_indices = [batch_index2position[idx] for idx in group]
-
-                most_common_phrase = Counter(phrases_in_group).most_common(1)[0][0]
-
-                f.write(f"{global_cluster_counter}\t{most_common_phrase}\t"
-                        f"{len(phrases_in_group)}\t"
-                        f"{sentence_indices}\t{position_indices}\n")
-                global_cluster_counter += 1
-
-    # -----------------------------
-    # Step 2: Final clustering of pre-clusters (with batching)
-    # -----------------------------
-    print(f'Pre-clustering is finished with total {global_cluster_counter} clusters!')
-    print('Creating final similarity matrix')
-    
-    
-    if global_cluster_counter > batch_size:
-        print(
-            f'Pre-clusters exceed batch_size ({batch_size}), '
-            'using batched approach for final clustering')
-        
-        print('Writing pre-cluster labels to memory')
-        merged_clusters_counter = 0
-        clusters_path = os.path.join(save_folder_path, 'pre_clusters_2.csv')
-        # TODO: add tqdm
-        # Process embeddings in batches to avoid memory issues
-        for i, batch in enumerate(
-            pd.read_csv(
-                pre_clusters_path, header=None, 
-                names=[
-                    'pre_cluster_id', 'label', 'size',
-                    'sentence_indices', 'position_indices'
-                ],
-                converters={
-                    'sentence_indices': ast.literal_eval,
-                    'position_indices': ast.literal_eval
-                },
-                chunksize=batch_size, sep='\t')):
-            idx2pre_cluster_id = {idx: row.pre_cluster_id for idx, row in enumerate(batch.itertuples())}
-            idx2pre_cluster_label = {idx: row.label for idx, row in enumerate(batch.itertuples())}
-            print(f'Processing pre-cluster embeddings batch {i+1}')
-            batch_labels = batch['label'].tolist()
-            batch_vectors = EMBEDDING_MODEL.get_vectors(batch_labels, progress_bar=True)
-            print('Creating similarity matrix for the batch')
-            batch_sim_matrix = cosine_similarity(batch_vectors)
-            batch_groups = cluster_connected_components(batch_sim_matrix, threshold)
-
-            for pre_cluster_group in batch_groups:
-                cluster_ids_to_merge = [idx2pre_cluster_id[idx] for idx in pre_cluster_group]
-                merged_label = Counter(
-                    [idx2pre_cluster_label[idx] for idx in pre_cluster_group]
-                ).most_common(1)[0][0]
-                merged_sentence_ids = batch['sentence_indices'].iloc[pre_cluster_group].sum()
-                merged_position_ids = batch['position_indices'].iloc[pre_cluster_group].sum()
-
-                with open(clusters_path, 'a') as f:
-                    f.write(f"{merged_clusters_counter}\t{merged_label}\t"
-                            f"{len(cluster_ids_to_merge)}\t"
-                            f"{merged_sentence_ids}\t{merged_position_ids}\n")
-                merged_clusters_counter += 1        
-        print(
-            f'Batched pre-clustering complete: {merged_clusters_counter} '
-            f'merged clusters saved to {clusters_path}'
-        )
-        pre_clusters_final_path = clusters_path
-        total_final_clusters = merged_clusters_counter
-    else:
-        pre_clusters_final_path = pre_clusters_path
-        total_final_clusters = global_cluster_counter
-
-    # -----------------------------
-    # Step 2b: Global final clustering
-    # -----------------------------
-    print(f'Final clustering with {total_final_clusters} pre-clusters')
-    all_labels = pd.read_csv(
-        pre_clusters_final_path, header=None,
-        names=['pre_cluster_id', 'label', 'size',
-               'sentence_indices', 'position_indices'],
-        converters={'sentence_indices': ast.literal_eval,
-                    'position_indices': ast.literal_eval},
-        sep='\t'
+    clust = AgglomerativeClustering(
+        metric="cosine",
+        linkage="complete",
+        distance_threshold=1 - threshold,
+        n_clusters=None
     )
+    labels = clust.fit_predict(training_vectors)
+    clusters = defaultdict(list)
+    for i, lbl in enumerate(labels):
+        clusters[lbl].append(i)
 
-    final_labels = all_labels['label'].tolist()
-    final_vectors = EMBEDDING_MODEL.get_vectors(final_labels, progress_bar=True)
-    print('Creating final similarity matrix')
-    sim_matrix = cosine_similarity(final_vectors)
-    print('Grouping final vectors')
-    clusters_groups = cluster_connected_components(sim_matrix, threshold)
+    clusters = list(clusters.values())
+    clusters = sorted(clusters, key=lambda x: -len(x))
 
-    # -----------------------------
-    # Step 3: Create final clusters & save incrementally (no memory list)
-    # -----------------------------
-    clusters_words_path = os.path.join(save_folder_path, 'clusters.txt')
-    cluster2label_path = os.path.join(save_folder_path, 'clusters.csv')
+    return clusters
+
+
+def create_clusters_batched2(input_path, save_folder_path, batch_size=15000):
+    os.makedirs(save_folder_path, exist_ok=True)
+    file_exists = False
+
+    pre_clusters_path = os.path.join(save_folder_path, 'pre_clusters.csv')
+
+    df = pd.read_csv(input_path)
+    df['count'] = df.groupby('word')['word'].transform('count')
+    phrase2count = df.drop_duplicates('word').set_index('word')['count'].to_dict()
+    phrases = list(set(df['word'].tolist()))
+    for i in range(0, len(phrases), batch_size):
+        batch = phrases[i:i+batch_size]
+        print(f'Embedding batch {i//batch_size + 1} of {(len(phrases)-1)//batch_size + 1}')
+        batch_clusters = emdeb_and_cluster(batch)
+        id2phrase = {idx: phrase for idx, phrase in enumerate(batch)}
+
+        for cl in tqdm(batch_clusters): 
+            cl_phrases = [id2phrase[idx] for idx in cl] 
+            counts = [phrase2count[ph] for ph in cl_phrases] 
+            cl_label = cl_phrases[counts.index(max(counts))] 
+            cl_size = sum(counts)
+            
+            with open(pre_clusters_path, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                if not file_exists:
+                    writer.writerow(['label', 'phrases', 'size'])  # header
+                    file_exists = True
+                writer.writerow([cl_label, cl_phrases, cl_size])
+
+
+    df = pd.read_csv(pre_clusters_path, converters={'phrases': ast.literal_eval})
+    label2phrases = {row.label: row.phrases for row in df.itertuples(index=False)}
+    file_exists = False
     
-    with open(clusters_words_path, 'w') as f_words:
-        first_write = True
-        for cl_id, cl_group in enumerate(clusters_groups):
-            cl_phrases, sentence_indices, position_indices = [], [], []
+    clusters = emdeb_and_cluster(df['label'].tolist())
+    with open(os.path.join(save_folder_path, 'clusters.csv'), 'w', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(['label', 'phrases', 'size']) 
+        for cluster in clusters:
+            df_subset = df.iloc[cluster]
+            clustered_labeles = df_subset['label'].tolist()
+            label2size = {row.label: row.size for row in df_subset.itertuples(index=False)}
+            label = max(label2size, key=label2size.get)
+            size = sum(label2size.values())
+            clustered_phrases = [ph for lab in clustered_labeles for ph in label2phrases[lab]]
+        
+            writer.writerow([label, clustered_phrases, size])
+    
+    with open(os.path.join(save_folder_path, 'clusters.csv'), 'w', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(['label', 'phrases', 'size'])
+        for cluster in tqdm(clusters):
+            df_subset = df.iloc[cluster]
+            label2size = df_subset.groupby('label')['size'].sum().to_dict()
+            label = max(label2size, key=label2size.get)
+            size = sum(label2size.values())
+            clustered_phrases = [
+                phrase 
+                for lab in df_subset['label']
+                for phrase in label2phrases[lab]
+            ]
+            
+            writer.writerow([label, clustered_phrases, size])
 
-            for pre_cluster_id in cl_group:
-                row = all_labels.loc[all_labels['pre_cluster_id'] == pre_cluster_id].iloc[0]
-                cl_phrases.extend([row['label']] * row['size'])
-                sentence_indices.extend(row['sentence_indices'])
-                position_indices.extend(row['position_indices'])
-
-            cl_label = Counter(cl_phrases).most_common(1)[0][0]
-
-            # append row to CSV directly with pandas
-            row_df = pd.DataFrame([{
-                'cluster_id': cl_id,
-                'label': cl_label,
-                'cluster_size': len(cl_phrases),
-                'sentence_indices': sentence_indices,
-                'position_indices': position_indices
-            }])
-            mode = 'w' if first_write else 'a'
-            header = first_write
-            row_df.to_csv(cluster2label_path, index=False, sep=';', mode=mode, header=header)
-            first_write = False
-
-            f_words.write(f"CLUSTER{cl_id}\t{cl_label}\t(size: {len(cl_phrases)})\n")
-            f_words.write(f"Words: {', '.join(cl_phrases)}\n")
-
-    print(f'Clustering completed. Created {cl_id+1} clusters.')
-
-
+    
 def replace_with_clusterized_labels(clusters_df: pd.DataFrame, sentences_df: pd.DataFrame):
     sentence_id2idx = {sid: idx for idx, sid in enumerate(sentences_df['sentence_id'])}
 
