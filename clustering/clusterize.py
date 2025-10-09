@@ -10,9 +10,8 @@ from sklearn.cluster import AgglomerativeClustering
 import spacy
 from tqdm import tqdm
 
-from .graph_clustering import cluster_connected_components
-
 # TODO: improve lemmatization; now I call spacy for each word, which is slow
+# move it to "simple coreference resolution"
 NLP = spacy.load("en_core_web_sm")
 
 # TODO: get rid of Relatio
@@ -97,54 +96,62 @@ def emdeb_and_cluster(
     return clusters
 
 
-def create_clusters_batched2(input_path, save_folder_path, batch_size=15000):
+def create_clusters(input_path, save_folder_path):
     os.makedirs(save_folder_path, exist_ok=True)
-    file_exists = False
-
-    pre_clusters_path = os.path.join(save_folder_path, 'pre_clusters.csv')
 
     df = pd.read_csv(input_path)
     df['count'] = df.groupby('word')['word'].transform('count')
     phrase2count = df.drop_duplicates('word').set_index('word')['count'].to_dict()
     phrases = list(set(df['word'].tolist()))
-    for i in range(0, len(phrases), batch_size):
-        batch = phrases[i:i+batch_size]
-        print(f'Embedding batch {i//batch_size + 1} of {(len(phrases)-1)//batch_size + 1}')
-        batch_clusters = emdeb_and_cluster(batch)
-        id2phrase = {idx: phrase for idx, phrase in enumerate(batch)}
+    clusters = emdeb_and_cluster(phrases)
+    id2phrase = {idx: phrase for idx, phrase in enumerate(phrases)}
+    
+    with open(os.path.join(save_folder_path, 'clusters.csv'), 'w', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(['label', 'phrases', 'size'])
+        for cluster in tqdm(clusters):
+            phrases = [id2phrase[idx] for idx in cluster]
+            counts = [phrase2count[ph] for ph in phrases]
+            label = phrases[counts.index(max(counts))]
+            size = sum(counts)
+            writer.writerow([label, phrases, size])
 
-        for cl in tqdm(batch_clusters): 
-            cl_phrases = [id2phrase[idx] for idx in cl] 
-            counts = [phrase2count[ph] for ph in cl_phrases] 
-            cl_label = cl_phrases[counts.index(max(counts))] 
-            cl_size = sum(counts)
-            
-            with open(pre_clusters_path, 'a', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                if not file_exists:
-                    writer.writerow(['label', 'phrases', 'size'])  # header
-                    file_exists = True
+
+def create_clusters_batched(input_path, save_folder_path, batch_size=15000):
+    os.makedirs(save_folder_path, exist_ok=True)
+
+    pre_clusters_path = os.path.join(save_folder_path, 'pre_clusters.csv')
+
+    df = pd.read_csv(input_path)
+    if len(df) <= batch_size:
+        create_clusters(input_path, save_folder_path)
+    df['count'] = df.groupby('word')['word'].transform('count')
+    phrase2count = df.drop_duplicates('word').set_index('word')['count'].to_dict()
+    phrases = list(set(df['word'].tolist()))
+
+        
+    with open(os.path.join(save_folder_path, 'clusters.csv'), 'w', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(['label', 'phrases', 'size'])
+        for i in range(0, len(phrases), batch_size):
+            batch = phrases[i:i+batch_size]
+            print(f'Embedding batch {i//batch_size + 1} of {(len(phrases)-1)//batch_size + 1}')
+            batch_clusters = emdeb_and_cluster(batch)
+            id2phrase = {idx: phrase for idx, phrase in enumerate(batch)}
+
+            for cl in tqdm(batch_clusters): 
+                cl_phrases = [id2phrase[idx] for idx in cl] 
+                counts = [phrase2count[ph] for ph in cl_phrases] 
+                cl_label = cl_phrases[counts.index(max(counts))] 
+                cl_size = sum(counts)
+                
                 writer.writerow([cl_label, cl_phrases, cl_size])
 
 
     df = pd.read_csv(pre_clusters_path, converters={'phrases': ast.literal_eval})
     label2phrases = {row.label: row.phrases for row in df.itertuples(index=False)}
-    file_exists = False
     
-    clusters = emdeb_and_cluster(df['label'].tolist())
-    with open(os.path.join(save_folder_path, 'clusters.csv'), 'w', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(['label', 'phrases', 'size']) 
-        for cluster in clusters:
-            df_subset = df.iloc[cluster]
-            clustered_labeles = df_subset['label'].tolist()
-            label2size = {row.label: row.size for row in df_subset.itertuples(index=False)}
-            label = max(label2size, key=label2size.get)
-            size = sum(label2size.values())
-            clustered_phrases = [ph for lab in clustered_labeles for ph in label2phrases[lab]]
-        
-            writer.writerow([label, clustered_phrases, size])
-    
+    clusters = emdeb_and_cluster(df['label'].tolist()) 
     with open(os.path.join(save_folder_path, 'clusters.csv'), 'w', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(['label', 'phrases', 'size'])
