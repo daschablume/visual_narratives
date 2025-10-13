@@ -1,6 +1,7 @@
 import ast
 from collections import defaultdict
 import csv
+from enum import Enum
 import os
 
 import pandas as pd
@@ -19,6 +20,13 @@ EMBEDDING_MODEL = Embeddings(
     embeddings_type="SentenceTransformer",
     embeddings_model='all-MiniLM-L6-v2',
 )
+
+class Status(Enum):
+    CLUSTERED = "clustered"
+    UNCLUSTERED = "unclustered"
+    RENAMED = "renamed"
+    MERGED = "merged"
+    SHRANK = "shrank"  # means when some phrases were removed manually
 
 
 def prepare_df_to_clustering(df, verbs_csv_path=None, np_csv_path=None):
@@ -69,13 +77,12 @@ def prepare_df_to_clustering(df, verbs_csv_path=None, np_csv_path=None):
     return verbs_csv_path, np_csv_path
             
 
-def emdeb_and_cluster(
+def embed_and_cluster(
     phrases: list[str], pca_args: dict = {'n_components': 50, 'svd_solver': 'full'},
     threshold: int = 0.7
 ) -> list[list[int]]:
     vectors = EMBEDDING_MODEL.get_vectors(phrases, progress_bar=True)
     # reduce dimensionality here with PCA
-    pca_args = {'n_components': 50, 'svd_solver': 'full'}  # ATTENTION: n_components == 50
     pca_model = PCA(**pca_args).fit(vectors)
     training_vectors = pca_model.transform(vectors)
 
@@ -96,47 +103,52 @@ def emdeb_and_cluster(
     return clusters
 
 
-def create_clusters(input_path, save_folder_path):
+def create_clusters(input_path: str, save_folder_path: str, 
+    pca_args: dict = {'n_components': 50, 'svd_solver': 'full'}
+):
     os.makedirs(save_folder_path, exist_ok=True)
 
     df = pd.read_csv(input_path)
     df['count'] = df.groupby('word')['word'].transform('count')
     phrase2count = df.drop_duplicates('word').set_index('word')['count'].to_dict()
     phrases = list(set(df['word'].tolist()))
-    clusters = emdeb_and_cluster(phrases)
+    clusters = embed_and_cluster(phrases, pca_args)
     id2phrase = {idx: phrase for idx, phrase in enumerate(phrases)}
     
     with open(os.path.join(save_folder_path, 'clusters.csv'), 'w', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(['label', 'phrases', 'size'])
+        writer.writerow(['label', 'phrases', 'size', 'status', 'date_changed'])
         for cluster in tqdm(clusters):
             phrases = [id2phrase[idx] for idx in cluster]
             counts = [phrase2count[ph] for ph in phrases]
             label = phrases[counts.index(max(counts))]
             size = sum(counts)
-            writer.writerow([label, phrases, size])
+            writer.writerow([label, phrases, size, Status.CLUSTERED, pd.Timestamp.now()])
 
 
-def create_clusters_batched(input_path, save_folder_path, batch_size=15000):
+def create_clusters_batched(
+    input_path, save_folder_path, batch_size=15000,
+    pca_args: dict = {'n_components': 50, 'svd_solver': 'full'}
+):
     os.makedirs(save_folder_path, exist_ok=True)
 
     pre_clusters_path = os.path.join(save_folder_path, 'pre_clusters.csv')
+    clusters_path = os.path.join(save_folder_path, 'clusters.csv')
 
     df = pd.read_csv(input_path)
-    if len(df) <= batch_size:
-        create_clusters(input_path, save_folder_path)
     df['count'] = df.groupby('word')['word'].transform('count')
     phrase2count = df.drop_duplicates('word').set_index('word')['count'].to_dict()
     phrases = list(set(df['word'].tolist()))
+    if len(phrases) <= batch_size:
+        return create_clusters(input_path, save_folder_path, pca_args)
 
-        
-    with open(os.path.join(save_folder_path, 'clusters.csv'), 'w', encoding='utf-8') as f:
+    with open(pre_clusters_path, 'w', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(['label', 'phrases', 'size'])
+        writer.writerow(['label', 'phrases', 'size', 'status', 'date_changed'])
         for i in range(0, len(phrases), batch_size):
             batch = phrases[i:i+batch_size]
             print(f'Embedding batch {i//batch_size + 1} of {(len(phrases)-1)//batch_size + 1}')
-            batch_clusters = emdeb_and_cluster(batch)
+            batch_clusters = embed_and_cluster(batch, pca_args)
             id2phrase = {idx: phrase for idx, phrase in enumerate(batch)}
 
             for cl in tqdm(batch_clusters): 
@@ -145,16 +157,18 @@ def create_clusters_batched(input_path, save_folder_path, batch_size=15000):
                 cl_label = cl_phrases[counts.index(max(counts))] 
                 cl_size = sum(counts)
                 
-                writer.writerow([cl_label, cl_phrases, cl_size])
-
+                writer.writerow([
+                    cl_label, cl_phrases, cl_size,
+                    Status.CLUSTERED, pd.Timestamp.now()
+                ])
 
     df = pd.read_csv(pre_clusters_path, converters={'phrases': ast.literal_eval})
     label2phrases = {row.label: row.phrases for row in df.itertuples(index=False)}
     
-    clusters = emdeb_and_cluster(df['label'].tolist()) 
-    with open(os.path.join(save_folder_path, 'clusters.csv'), 'w', encoding='utf-8') as f:
+    clusters = embed_and_cluster(df['label'].tolist(), pca_args) 
+    with open(clusters_path, 'w', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(['label', 'phrases', 'size'])
+        writer.writerow(['label', 'phrases', 'size', 'status', 'date_changed'])
         for cluster in tqdm(clusters):
             df_subset = df.iloc[cluster]
             label2size = df_subset.groupby('label')['size'].sum().to_dict()
@@ -166,31 +180,18 @@ def create_clusters_batched(input_path, save_folder_path, batch_size=15000):
                 for phrase in label2phrases[lab]
             ]
             
-            writer.writerow([label, clustered_phrases, size])
+            writer.writerow([label, clustered_phrases, size, Status.CLUSTERED, pd.Timestamp.now()])
+            
 
     
-def replace_with_clusterized_labels(clusters_df: pd.DataFrame, sentences_df: pd.DataFrame):
-    sentence_id2idx = {sid: idx for idx, sid in enumerate(sentences_df['sentence_id'])}
+def replace_with_clusterized_labels(meta_path: str, sentences_df: pd.DataFrame) -> pd.DataFrame:
+    meta_df = pd.read_csv(meta_path, converters={'phrases': ast.literal_eval})
+    phrase2label = {p.lower(): row.label for _, row in meta_df.iterrows() for p in row.phrases}
 
-    for row in clusters_df.itertuples(index=False):
-        for position_id, sentence_id in zip(row.position_indices, row.sentence_indices):
-            idx = sentence_id2idx[sentence_id]
-            orig_sentence = sentences_df.at[idx, 'parsed_sentence']
-            orig_sentence[position_id] = row.label
-            sentences_df.at[idx, 'parsed_sentence'] = orig_sentence
+    sentences_df["parsed_sentence"] = sentences_df["parsed_sentence"].apply(
+        lambda lst: [phrase2label.get(w.lower(), w) for w in lst]
+    )
 
     return sentences_df
 
 
-def replace_with_lemmatized_verbs(lemmas_df: pd.DataFrame, sentences_df: pd.DataFrame):
-    sentence_id2idx = {sid: idx for idx, sid in enumerate(sentences_df["sentence_id"])}
-
-    for row in lemmas_df.itertuples(index=False):
-        df_idx = sentence_id2idx[row.sentence_id]
-        parsed = sentences_df.at[df_idx, "parsed_sentence"]
-        parsed[row.position_idx] = row.word
-        sentences_df.at[df_idx, "parsed_sentence"] = parsed
-
-    return sentences_df
-
-    
