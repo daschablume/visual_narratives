@@ -1,6 +1,8 @@
 from collections import defaultdict
 from copy import deepcopy
+import glob
 import json
+import os
 import random
 import statistics
 
@@ -10,10 +12,13 @@ import numpy as np
 import pandas as pd
 from pyvis import network as net
 
+
 NOT_NODE_LABELS = (
     'WHNP', 'TO', 'WHADVP', 'CC', 'RP', 'PRT', 'IN', 'RB', 'MD', 'DT'
 )
 
+# TODO: refactor this module, 
+#       graph creation and graph analysis should be two different things
 
 def create_graph(df: pd.DataFrame, only_verbs_labels=False):
     G = nx.MultiDiGraph()
@@ -92,7 +97,7 @@ def create_graph(df: pd.DataFrame, only_verbs_labels=False):
             G.nodes[node]['sentence_ids'] = list(metadata['sentence_ids'])
             G.nodes[node]['media_ids'] = list(metadata['media_ids'])
     
-    # covert sets to lists for serialization
+    # convert sets to lists for serialization
     for _, _, _, data in G.edges(keys=True, data=True):
         if "sentence_ids" in data:
             data["sentence_ids"] = list(data["sentence_ids"])
@@ -271,25 +276,18 @@ def analyze_graph(graph: nx.classes.multidigraph.MultiDiGraph, topn=10):
 
     Eigenvector centrality is not calculated since nx doesn't support it for MultiDiGraph.
     '''
-    betweenness = nx.betweenness_centrality(graph, weight='weight')
+    #betweenness = nx.betweenness_centrality(graph, weight='weight')
     degree_centrality = nx.degree_centrality(graph)
-    closeness_centrality = nx.closeness_centrality(graph, distance='weight')
-    page_rank = nx.pagerank(graph, weight='weight')
     
-    # Get top 20 nodes for each metric
-    top_betweenness = sorted(betweenness.items(), key=lambda x: x[1], reverse=True)[:topn]
+    #top_betweenness = sorted(betweenness.items(), key=lambda x: x[1], reverse=True)[:topn]
     top_degree = sorted(degree_centrality.items(), key=lambda x: x[1], reverse=True)[:topn]
-    top_closeness = sorted(closeness_centrality.items(), key=lambda x: x[1], reverse=True)[:topn]
-    top_pagerank = sorted(page_rank.items(), key=lambda x: x[1], reverse=True)[:topn]
     
-    results = {
-        'betweenness': top_betweenness,
-        'degree': top_degree,
-        'closeness': top_closeness,
-        'pagerank': top_pagerank
-    }
+    #results = {
+        #'betweenness': top_betweenness,
+        #'degree': top_degree
+    #}
 
-    return results
+    return top_degree
 
 
 def dict_to_df(name, metrics_dict):
@@ -448,3 +446,59 @@ def create_graph2(df: pd.DataFrame, only_verbs_labels=False):
                 )
 
     return G
+
+
+def split_df_create_graphs(merged_df, output_dir):
+    '''
+    Here: merged_df is an updated df together with event types.
+    TODO: write a proper description, rename variables
+    '''
+
+    cop_c = merged_df[(merged_df['event'] == 'cop') & (merged_df['usr_type'] == 'c')]
+    cop_m = merged_df[(merged_df['event'] == 'cop') & (merged_df['usr_type'] == 'm')]
+    strike_c = merged_df[(merged_df['event'] == 'strike') & (merged_df['usr_type'] == 'c')]
+    strike_m = merged_df[(merged_df['event'] == 'strike') & (merged_df['usr_type'] == 'm')]
+
+    name2graph = {}
+    for df in [cop_c, cop_m, strike_c, strike_m]:
+        event_type, user_type = df['event'].iloc[0], df['usr_type'].iloc[0]
+        print(f"Event: {event_type}, User type: {user_type}, Number of sentences: {len(df)}")
+        print('Creating graph')
+        graph = create_graph(df)
+        print('Graph created with', len(graph.nodes), 'nodes and', len(graph.edges), 'edges.')
+        #draw_graph(graph, output_filename=os.path.join(output_dir, f'graph_{event_type}_{user_type}.html'))
+        save_graph_to_json(graph, path=os.path.join(output_dir, f'graph_{event_type}_{user_type}.json'))
+        print('Graph saved to:', os.path.join(output_dir, f'graph_{event_type}_{user_type}.html'))
+        name2graph[f'{event_type}_{user_type}'] = graph
+    
+    return name2graph
+
+
+def analyze_graphs(folder: str=None, name2graph: dict=None):
+    '''
+    TODO: please write function description and proper ValueError
+    '''
+    if folder and name2graph:
+        raise ValueError('')
+    if not folder and not name2graph:
+        raise ValueError
+    if folder:
+        graphs_path = glob(f'{folder}/*.json')
+        name2graph = {}
+        for path in graphs_path:
+            name = path.split('/')[-1].split('.')[0]
+            graph = read_graph_from_json(path)
+            name2graph[name] = graph
+    
+    name2words = {}
+    for name, graph in name2graph.items():
+        results = analyze_graph(graph)
+        words = [w for w, _ in results]
+        name2words[name] = words
+    
+    for a, b, c, d in zip(
+        name2words['cop_c'], name2words['cop_m'],
+        name2words['strike_m'], name2words['strike_c']
+    ):
+        print(f"{a} & {b} & {c} & {d} \\\\")
+    

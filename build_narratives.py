@@ -8,14 +8,16 @@ from clustering.orchestrator import (
     process_and_cluster_phrases,
     update_sentences_with_clusterized
 )
-from create_graph import create_graph, draw_graph, save_graph_to_json, clean_graph
+from create_graph import split_df_create_graphs, draw_graph
 from preprocessor import Preprocessor
+from simple_coref_resolution import resolve_in_batches
 
 
-OUTPUT_DIR = '../experiments4'
+OUTPUT_DIR = '../experiments5'
+PCA_ARGS = {'n_components': 50, 'svd_solver': 'full'}
 
 
-def synt_parse_df(input_file='prompts/prompt4.tsv', output_dir="prompt4_synt_pars"):
+def synt_parse_df(input_file='../experiments5/narr_finaldata_p11.tsv', output_dir="../experiments5"):
     from synt_parsing import parse_sentence
     '''
     This should be a part of main function.
@@ -23,8 +25,6 @@ def synt_parse_df(input_file='prompts/prompt4.tsv', output_dir="prompt4_synt_par
     So instead, I split sentences and parse them in google colab.
     Then I save .csv file. So here, in main, I just read this .csv
     '''    
-    output_dir = os.path.join(OUTPUT_DIR, output_dir)
-    os.makedirs(output_dir, exist_ok=True)
     PROCESSOR = Preprocessor()
 
     # TODO: make sure the input is a TSV or change the func to be able to read CSV also
@@ -38,11 +38,18 @@ def synt_parse_df(input_file='prompts/prompt4.tsv', output_dir="prompt4_synt_par
     df = df[~df['Labels'].str.contains("I can't determine", case=False)]
     df = df[~df['Labels'].str.contains("image does not", case=False)]
 
+    # resolve coreferences: the resolution is quite primitive but resolves 94.889% of problems 
+    # for "they"
+    texts = df['Labels'].tolist()
+    new_texts = resolve_in_batches(texts)
+    df['Labels'] = new_texts
+
     df_sentences = PROCESSOR.split_into_sentences(
         df, output_path=os.path.join(output_dir, 'sentences.csv'))
     df_sentences = df_sentences.drop(columns=['Labels'])
     # filter out two-symbol sentences
     df_sentences = df_sentences[df_sentences['sentence'].str.len() > 2]
+    df_sentences.to_csv(os.path.join(output_dir, 'sentences.csv'), index=False)
 
     # TODO: add parsing logic?
     output_file = os.path.join(output_dir, 'parsed_sentences.csv')
@@ -64,7 +71,10 @@ def synt_parse_df(input_file='prompts/prompt4.tsv', output_dir="prompt4_synt_par
     print('Parsed sentences saved to:', output_file)
     
 
-def main(input_file, output_dir):
+def main(
+    input_file, output_dir, 
+    pca_args=PCA_ARGS,
+):
     sentences_df = pd.read_csv(
         input_file,
         converters={
@@ -72,12 +82,10 @@ def main(input_file, output_dir):
             'parsed_sentence': ast.literal_eval
         }
     )
-    sentences_df = sentences_df.drop(columns=['Labels'])
     sentences_df['path'] = sentences_df['Dir'].astype(str) + "/" + sentences_df['ImageID'].astype(str)
 
-    # TODO: now clustering suffers from batching, not DRY code, not enough of 
-    # messages about clustering progress; needs fixing, otherwise lead to suffering
-    process_and_cluster_phrases(sentences_df, output_dir)
+    # TODO: fix calling NLP from spacy on each verb + I do cluster verbs now
+    process_and_cluster_phrases(sentences_df, output_dir, pca_args)
     print(f"Roles clustered and saved to {output_dir}")
     updated_roles_df = update_sentences_with_clusterized(sentences_df, output_dir)
     print(f"Roles updated with clusters and saved to {output_dir}")
@@ -86,30 +94,21 @@ def main(input_file, output_dir):
     data = pd.read_csv(f'{output_dir}/data.tsv', sep='\t')
     merged_df = updated_roles_df.merge(data, on="path", how="inner")
 
-    cop_c = merged_df[(merged_df['event'] == 'cop') & (merged_df['usr_type'] == 'c')]
-    cop_m = merged_df[(merged_df['event'] == 'cop') & (merged_df['usr_type'] == 'm')]
-    strike_c = merged_df[(merged_df['event'] == 'strike') & (merged_df['usr_type'] == 'c')]
-    strike_m = merged_df[(merged_df['event'] == 'strike') & (merged_df['usr_type'] == 'm')]
+    merged_df.to_csv(os.path.join(output_dir, 'updated_data.csv'), index=False)
 
-    for df in [cop_c, cop_m, strike_c, strike_m]:
-        event_type, user_type = df['event'].iloc[0], df['usr_type'].iloc[0]
-        print(f"Event: {event_type}, User type: {user_type}, Number of sentences: {len(df)}")
-        print('Creating graph')
-        graph = create_graph(df)
-        print('Graph created with', len(graph.nodes), 'nodes and', len(graph.edges), 'edges.')
-        if len(df) > 10000:
-            print('Huge dataset! Pruning the graph to its largest component.')
-            cleaned_graph = clean_graph(graph)
-        else:
-            graph = clean_graph(graph, edge_weight=1)
-        draw_graph(graph, output_filename=os.path.join(output_dir, f'graph_{event_type}_{user_type}.html'))
-        save_graph_to_json(graph, path=os.path.join(output_dir, f'graph_{event_type}_{user_type}.json'))
-        print('Graph saved to:', os.path.join(output_dir, f'graph_{event_type}_{user_type}.html'))
-
+    name2graph = split_df_create_graphs(merged_df, output_dir)
+    for name, graph in name2graph.items():
+        if name.endswith('_c'):
+            draw_graph(
+                graph, notebook=False,
+                output_filename=os.path.join(output_dir, f'{name}_graph.html')
+            )
+            print('Graph is drawn and saved to:', os.path.join(output_dir, f'{name}_graph.html'))
 
 if __name__ == "__main__":
-    # Example usage
-    #main(input_file=f'{OUTPUT_DIR}/prompt1_synt_pars/parsed_sentences.csv', output_dir="prompt1_synt_pars_test")
-    main(input_file=f'{OUTPUT_DIR}/parsed_sentences.csv', output_dir=OUTPUT_DIR)
-
+    # Example usage; 194 components explain 90% variance
+    main(
+        input_file=f'../experiments6/parsed_sentences.csv', 
+        output_dir='../experiments6', pca_args={'n_components': 194, 'svd_solver': 'full'}
+)
 

@@ -12,9 +12,9 @@ def uncluster(
 ) -> pd.DataFrame:
     '''
     '''
-    if updated_df_path and updated_df:
+    if updated_df_path and updated_df is not None:
         raise ValueError("Can't have both updated_df_path and updated_df")
-    if not updated_df_path and not updated_df:
+    if not updated_df_path and updated_df is None:
         raise ValueError("Please provide either updated_df_path or updated_df")
     if updated_df_path:
         updated_df = pd.read_csv(
@@ -68,9 +68,9 @@ def remove_from_cluster(
 ) -> pd.DataFrame:
     '''
     '''
-    if updated_df_path and updated_df:
+    if updated_df_path and updated_df is not None:
         raise ValueError("Can't have both updated_df_path and updated_df")
-    if not updated_df_path and not updated_df:
+    if not updated_df_path and updated_df is None:
         raise ValueError("Please provide either updated_df_path or updated_df")
     if updated_df_path:
         updated_df = pd.read_csv(
@@ -108,7 +108,8 @@ def remove_from_cluster(
     updated_df['parsed_sentence'] = updated_df.apply(apply_updates, axis=1)
     new_clustered_phrases = [ph for ph in clustered_phrases if ph not in phrases_to_remove]
     # TODO: double-check; works for now dunno if it's legal
-    clusters_df.loc[clusters_df['label'] == cluster_name, 'phrases'][0] = new_clustered_phrases
+    idx = clusters_df[clusters_df['label'] == cluster_name].index[0]
+    clusters_df.at[idx, 'phrases'] = new_clustered_phrases
     size = len(unclustered_df[unclustered_df['word'].isin(new_clustered_phrases)])
     clusters_df.loc[clusters_df['label'] == cluster_name, 'size'] = size
 
@@ -130,9 +131,9 @@ def rename_cluster(
     '''
     TODO: restructure rename_cluster and unclusterize into one func, since it's almost the same code 
     '''
-    if updated_df_path and updated_df:
+    if updated_df_path and updated_df is not None:
         raise ValueError("Can't have both updated_df_path and updated_df")
-    if not updated_df_path and not updated_df:
+    if not updated_df_path and updated_df is None:
         raise ValueError("Please provide either updated_df_path or updated_df")
     if updated_df_path:
         updated_df = pd.read_csv(
@@ -171,7 +172,8 @@ def rename_cluster(
         return row['parsed_sentence']
 
     updated_df['parsed_sentence'] = updated_df.apply(apply_updates, axis=1)
-
+    clusters_df.loc[clusters_df['label'] == curr_cluster_name, 'label'] = new_cluster_name
+    
     # very primitive logging
     clusters_df.loc[clusters_df['label'] == curr_cluster_name, 'status'] = Status.RENAMED
     clusters_df.loc[clusters_df['label'] == curr_cluster_name, 'unclustered_date'] = pd.Timestamp.now()
@@ -190,9 +192,9 @@ def merge_clusters(
     '''
     TODO: restructure rename_cluster and unclusterize into one func, since it's almost the same code 
     '''
-    if updated_df_path and updated_df:
+    if updated_df_path and updated_df is not None:
         raise ValueError("Can't have both updated_df_path and updated_df")
-    if not updated_df_path and not updated_df:
+    if not updated_df_path and updated_df is None:
         raise ValueError("Please provide either updated_df_path or updated_df")
     if updated_df_path:
         updated_df = pd.read_csv(

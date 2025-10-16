@@ -186,7 +186,12 @@ def create_clusters_batched(
     
 def replace_with_clusterized_labels(meta_path: str, sentences_df: pd.DataFrame) -> pd.DataFrame:
     meta_df = pd.read_csv(meta_path, converters={'phrases': ast.literal_eval})
-    phrase2label = {p.lower(): row.label for _, row in meta_df.iterrows() for p in row.phrases}
+    phrase2label = {
+        phr.lower(): tup.label 
+        for tup in meta_df.itertuples() 
+        for phr in tup.phrases 
+        if tup.status != Status.UNCLUSTERED
+    }
 
     sentences_df["parsed_sentence"] = sentences_df["parsed_sentence"].apply(
         lambda lst: [phrase2label.get(w.lower(), w) for w in lst]
