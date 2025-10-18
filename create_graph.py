@@ -16,6 +16,7 @@ from pyvis import network as net
 NOT_NODE_LABELS = (
     'WHNP', 'TO', 'WHADVP', 'CC', 'RP', 'PRT', 'IN', 'RB', 'MD', 'DT'
 )
+PRONOUNS = ['she', 'her', 'they', 'them', 'he', 'him', 'his', 'its']
 
 # TODO: refactor this module, 
 #       graph creation and graph analysis should be two different things
@@ -30,6 +31,9 @@ def create_graph(df: pd.DataFrame, only_verbs_labels=False):
         media_id = row['media_id']
         parsed_labels = row['parsed_labels']
         parsed_sentence = row['parsed_sentence']
+        # skip this row if there is a pronoun in the parsed_sentence
+        if any(word.lower() in PRONOUNS for word in parsed_sentence):
+            continue
         pointer1, pointer2 = 0, 1
         end_list = len(parsed_labels) - 1  # "." is always the last token
 
@@ -58,9 +62,6 @@ def create_graph(df: pd.DataFrame, only_verbs_labels=False):
             node1, node2  = parsed_sentence[pointer1], parsed_sentence[pointer2]
             pointer1 = pointer2
             pointer2 = pointer1 + 1
-            # crotches =(
-            if node1.lower() in ('it', 'they') or node2.lower() in ('it', 'they'):
-                continue
 
             # check whether this edge already exists in the graph
             edge_found = False
@@ -315,25 +316,46 @@ def print_strongest_connections(graph, threshold = 3):
             print(f"Edge: {u} [{label}] {v}, Weight: {data['weight']}")
 
 
-def clean_multigraph(graph, min_total_edge_weight=20, core=5, topn=50):
-    # Calculate total weight between each node pair
-    node_pair_weights = {}
-    for u, v, k, d in graph.edges(keys=True, data=True):
-        pair = (u, v)
-        node_pair_weights[pair] = node_pair_weights.get(pair, 0) + d['weight']
+def clean_multigraph(
+    G, min_total_edge_weight:int=None, core:int=None, topn:int=None,
+    only_core=False, only_topn=False
+):
+    G_filtered = G
+    if not only_core:
+        if not min_total_edge_weight:
+            degrees = [d for _, d in G.degree(weight='weight')]
+            min_total_edge_weight = np.median(degrees)
+        
+        print(f'Removing edges with weight less than {min_total_edge_weight}')
+        # Calculate total weight between each node pair
+        node_pair_weights = {}
+        for u, v, k, d in G.edges(keys=True, data=True):
+            pair = (u, v)
+            node_pair_weights[pair] = node_pair_weights.get(pair, 0) + d['weight']
+        
+        # Keep only edges between strongly connected node pairs
+        strong_edges = []
+        for u, v, k, d in G.edges(keys=True, data=True):
+            if node_pair_weights[(u, v)] >= min_total_edge_weight:
+                strong_edges.append((u, v, k))
+        
+        G_filtered = nx.edge_subgraph(G, strong_edges).copy()
     
-    # Keep only edges between strongly connected node pairs
-    strong_edges = []
-    for u, v, k, d in graph.edges(keys=True, data=True):
-        if node_pair_weights[(u, v)] >= min_total_edge_weight:
-            strong_edges.append((u, v, k))
-    
-    G_filtered = nx.edge_subgraph(graph, strong_edges).copy()
-    G_core = k_core_weighted_multigraph(G_filtered, k=core)
-    degrees = dict(G_core.degree(weight='weight'))
-    top_nodes = sorted(degrees, key=degrees.get, reverse=True)[:topn]
-    G_sub = G_core.subgraph(top_nodes).copy()
-    return G_sub
+    G_core = G_filtered
+    if not only_topn:
+        if not core:
+            deg_values = [d for _, d in G_filtered.degree(weight='weight')]
+            median = np.median(deg_values)
+            core = int(median)
+            print(f'Filtering with the core {core}')
+
+            G_core = k_core_weighted_multigraph(G_filtered, k=core)
+    if topn:
+        degrees = {n:d for n, d in G_filtered.degree(weight='weight')}
+        top_nodes = sorted(degrees, key=degrees.get, reverse=True)[:topn]
+        G_sub = G_core.subgraph(top_nodes).copy()
+        return G_sub
+    return G_core
 
 
 def weighted_random_walk_no_cycles(graph, start_node, max_steps=5):

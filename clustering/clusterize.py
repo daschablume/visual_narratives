@@ -27,6 +27,7 @@ class Status(Enum):
     RENAMED = "renamed"
     MERGED = "merged"
     SHRANK = "shrank"  # means when some phrases were removed manually
+    DELETED = "deleted"
 
 
 def prepare_df_to_clustering(df, verbs_csv_path=None, np_csv_path=None):
@@ -190,7 +191,7 @@ def replace_with_clusterized_labels(meta_path: str, sentences_df: pd.DataFrame) 
         phr.lower(): tup.label 
         for tup in meta_df.itertuples() 
         for phr in tup.phrases 
-        if tup.status != Status.UNCLUSTERED
+        if tup.status not in (Status.UNCLUSTERED, Status.DELETED)
     }
 
     sentences_df["parsed_sentence"] = sentences_df["parsed_sentence"].apply(

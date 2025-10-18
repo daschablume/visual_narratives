@@ -1,3 +1,4 @@
+import ast
 from enum import Enum
 import os
 
@@ -30,8 +31,7 @@ def reindex_graphs(
     A function to rename/merge/uncluster clusters, replace labels, and re-generate graphs and analysis.
     # TODO: move checking of df/path and verbs here from each correspondent function
     '''
-    # TODO3: Enum for func
-    # TODO4: I do not replace labels here, so the graphs will have old labels
+
     if func_name == Func.RENAME.value and not new_cluster_name and not curr_cluster_name:
         raise ValueError('Rename function can be called only with "new_cluster_name" variable')
     if func_name == Func.MERGE.value and not new_cluster_name and not cluster_names:
@@ -41,28 +41,55 @@ def reindex_graphs(
     if func_name == Func.REMOVE.value and not curr_cluster_name and not phrases_to_remove:
         raise ValueError('Remove function can be called only with "curr_cluster_name" and "phrases_to_remove" variables')
     
+    if updated_df_path and updated_df is not None:
+        raise ValueError("Can't have both updated_df_path and updated_df")
+    if not updated_df_path and updated_df is None:
+        raise ValueError("Please provide either updated_df_path or updated_df")
+    if updated_df_path:
+        updated_df = pd.read_csv(
+            updated_df_path,
+            converters={
+                'parsed_labels': ast.literal_eval,
+                'parsed_sentence': ast.literal_eval
+        })
+    if verbs:
+        cluster_path = os.path.join(folder, 'verbs_meta', 'clusters.csv')
+        prepared_path = os.path.join(folder, 'verbs.csv')
+    else:
+        cluster_path = os.path.join(folder, 'np_meta', 'clusters.csv')
+        prepared_path = os.path.join(folder, 'np.csv')
+    
+    unclustered_df = pd.read_csv(prepared_path)
+    clusters_df = pd.read_csv(cluster_path, converters={'phrases': ast.literal_eval})
+
     if func_name == Func.RENAME.value:
-        updated_df = rename_cluster(
-            curr_cluster_name, folder, new_cluster_name, updated_df, updated_df_path, verbs
+        updated_df, clusters_df = rename_cluster(
+            curr_cluster_name, new_cluster_name, 
+            unclustered_df, clusters_df, updated_df
         )
     elif func_name == Func.MERGE.value:
-        updated_df = merge_clusters(
-            cluster_names, new_cluster_name, folder, updated_df, updated_df_path, verbs
+        updated_df, clusters_df = merge_clusters(
+            cluster_names, new_cluster_name, unclustered_df, clusters_df, updated_df
         )
     elif func_name == Func.UNCLUSTER.value:
-        updated_df = uncluster(
-            curr_cluster_name, folder, updated_df, updated_df_path, verbs
+        updated_df, clusters_df = uncluster(
+            curr_cluster_name, unclustered_df, clusters_df, updated_df
         )
     elif func_name == Func.REMOVE.value:
-        updated_df = remove_from_cluster(
-            curr_cluster_name, phrases_to_remove, folder, updated_df, updated_df_path, verbs
+        updated_df, clusters_df = remove_from_cluster(
+            curr_cluster_name, phrases_to_remove, unclustered_df, clusters_df, updated_df
         )
     else: 
         raise ValueError('Unknown func name')
     
-    meta_path = os.path.join(
+    clusters_df.to_csv(cluster_path, index=False)
+    if updated_df_path:
+        updated_df.to_csv(updated_df_path, index=False)
+    
+    # update labels in updated_df according to updated clusters
+    #meta_path = os.path.join(
         folder, 'verbs_meta' if verbs else 'np_meta', 'clusters.csv'
-    )
+    #)
     # TODO: do I actually need to replace labels again? I think I do it anyway in each function
     #updated_df = replace_with_clusterized_labels(meta_path, updated_df)
 
@@ -74,9 +101,10 @@ def reindex_graphs(
 
 if __name__ == "__main__":
     name2graph = reindex_graphs(
-        func_name=Func.UNCLUSTER.value,
+        func_name=Func.MERGE.value,
         folder='../experiments5',
-        curr_cluster_name='India and Russia',
+        cluster_names=['a large crowd', 'The crowd'],
+        new_cluster_name='crowd',
         updated_df_path='../experiments5/updated_data.csv',
         verbs=False,
         analyze=True
