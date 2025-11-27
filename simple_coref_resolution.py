@@ -29,7 +29,7 @@ def resolve_in_batches(texts: list[str]) -> list[str]:
         spans = [doc[tok.left_edge.i: tok.right_edge.i+1] for tok in doc if tok.dep_=="nsubj"]
         text = doc.text
         for span in spans:
-            if span.text.lower() in ("they", "it"):
+            if span.text.lower() in ("they", "it", "she", "he"):
                 text = text.replace(span.text, spans[0].text)
         new_texts.append(text)
     return new_texts

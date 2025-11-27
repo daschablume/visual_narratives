@@ -43,7 +43,7 @@ def update_sentences_with_clusterized(df, output_dir):
     '''
     A wrapper function to update sentences with clusterized labels.
     '''
-    meta = {"np_meta": 'noun', "verbs_meta": 'verb'}
+    meta = {"nouns_meta": 'noun', "verbs_meta": 'verb'}
     for folder_name, phrase_type in meta.items():
         print(f"Updating {phrase_type} phrases with clusterized labels...")
         meta_path = os.path.join(output_dir, folder_name, 'clusters.csv')

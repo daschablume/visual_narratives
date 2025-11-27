@@ -1,3 +1,4 @@
+import ast
 from collections import defaultdict
 from copy import deepcopy
 import glob
@@ -8,6 +9,7 @@ import statistics
 
 import matplotlib.colors as mcolors
 import networkx as nx
+from networkx.algorithms.community import louvain_communities
 import numpy as np
 import pandas as pd
 from pyvis import network as net
@@ -17,6 +19,12 @@ NOT_NODE_LABELS = (
     'WHNP', 'TO', 'WHADVP', 'CC', 'RP', 'PRT', 'IN', 'RB', 'MD', 'DT'
 )
 PRONOUNS = ['she', 'her', 'they', 'them', 'he', 'him', 'his', 'its']
+
+NODES_TO_EXCLUDE = {
+    'The image', 'The message', 'This image', 
+    "This", "The images", 'The scene', "the country",
+    'There', "The narrative", "others", "something", ''
+}
 
 # TODO: refactor this module, 
 #       graph creation and graph analysis should be two different things
@@ -62,7 +70,13 @@ def create_graph(df: pd.DataFrame, only_verbs_labels=False):
             node1, node2  = parsed_sentence[pointer1], parsed_sentence[pointer2]
             pointer1 = pointer2
             pointer2 = pointer1 + 1
+            # skip nodes in the exclusion list or if they contain "their"
+            if {node1, node2} & NODES_TO_EXCLUDE or any('their' in n.lower() for n in (node1, node2)):
+                continue
 
+            if parsed_labels[pointer1-1] == 'ADVP' or parsed_labels[pointer2-1] == 'ADVP':
+                # skip "often" etc. as a node
+                continue
             # check whether this edge already exists in the graph
             edge_found = False
             if G.has_edge(node1, node2):
@@ -116,6 +130,7 @@ def draw_graph(
     height="1000px",
     show_buttons=False,
     only_physics_buttons=False,
+    toggle_physics=True
 ):
     """
     This function accepts a networkx graph object,
@@ -203,6 +218,8 @@ def draw_graph(
     # Make sure edges aren't written on one another
     pyvis_graph.set_edge_smooth("dynamic")
 
+    pyvis_graph.toggle_physics(toggle_physics)
+
     # return and also save
     return pyvis_graph.show(output_filename)
 
@@ -237,6 +254,10 @@ def print_narratives(node, graph):
         edge_label = data.get('label', 'no_label') 
         edge_weight = data.get('weight', 1)
         print(f"{source} --{edge_label}({edge_weight})--> {target}")
+
+
+def extract_communities(graph):
+    return louvain_communities(graph, weight='weight')
 
 
 def make_subgraph_from_community(graph, community: set):
@@ -274,6 +295,8 @@ def analyze_graph(graph: nx.classes.multidigraph.MultiDiGraph, topn=10):
     '''
     A helper function to display betweenness centrality and degree centrality of the graph,
     as well as the number of nodes and edges.
+
+    Degree_centrality: normalized per number of nodes minus one.
 
     Eigenvector centrality is not calculated since nx doesn't support it for MultiDiGraph.
     '''
@@ -409,14 +432,18 @@ def k_core_weighted_multigraph(graph, k=2):
     return new_graph
 
 
-def create_graph2(df: pd.DataFrame, only_verbs_labels=False):
+def create_graph_2(df: pd.DataFrame, only_verbs_labels=False):
     G = nx.MultiDiGraph()
+
+    node2metadata = defaultdict(lambda: {'sentence_ids': set(), 'media_ids': set()})
 
     for _, row in df.iterrows():
         sentence_id = row['sentence_id']
-        media_id = row['media_id']
         parsed_labels = row['parsed_labels']
         parsed_sentence = row['parsed_sentence']
+        # skip this row if there is a pronoun in the parsed_sentence
+        if any(word.lower() in PRONOUNS for word in parsed_sentence):
+            continue
         pointer1, pointer2 = 0, 1
         end_list = len(parsed_labels) - 1  # "." is always the last token
 
@@ -454,6 +481,7 @@ def create_graph2(df: pd.DataFrame, only_verbs_labels=False):
                         # if found and has the same label,
                         # increment the weight and add sentence_id and media_id
                         edge_data["weight"] += 1
+                        edge_data["sentence_ids"].add(sentence_id)
                         edge_found = True
                         break
 
@@ -464,13 +492,30 @@ def create_graph2(df: pd.DataFrame, only_verbs_labels=False):
                     node2,
                     label=edge_label,
                     weight=1,
+                    sentence_ids={sentence_id},
                     pos=pos_tag
                 )
+            
+            # Add sentence_id and media_id to both nodes' metadata
+            for node in [node1, node2]:
+                node2metadata[node]['sentence_ids'].add(sentence_id)
 
+    for node, metadata in node2metadata.items():
+        if node in G:
+            G.nodes[node]['sentence_ids'] = list(metadata['sentence_ids'])
+            G.nodes[node]['media_ids'] = list(metadata['media_ids'])
+    
+    # convert sets to lists for serialization
+    for _, _, _, data in G.edges(keys=True, data=True):
+        if "sentence_ids" in data:
+            data["sentence_ids"] = list(data["sentence_ids"])
+        if "media_ids" in data:
+            data["media_ids"] = list(data["media_ids"])
+    
     return G
 
 
-def split_df_create_graphs(merged_df, output_dir):
+def split_df_create_graphs(merged_df, output_dir, only_verbs_labels=False):
     '''
     Here: merged_df is an updated df together with event types.
     TODO: write a proper description, rename variables
@@ -486,7 +531,7 @@ def split_df_create_graphs(merged_df, output_dir):
         event_type, user_type = df['event'].iloc[0], df['usr_type'].iloc[0]
         print(f"Event: {event_type}, User type: {user_type}, Number of sentences: {len(df)}")
         print('Creating graph')
-        graph = create_graph(df)
+        graph = create_graph(df, only_verbs_labels=only_verbs_labels)
         print('Graph created with', len(graph.nodes), 'nodes and', len(graph.edges), 'edges.')
         #draw_graph(graph, output_filename=os.path.join(output_dir, f'graph_{event_type}_{user_type}.html'))
         save_graph_to_json(graph, path=os.path.join(output_dir, f'graph_{event_type}_{user_type}.json'))
@@ -496,7 +541,23 @@ def split_df_create_graphs(merged_df, output_dir):
     return name2graph
 
 
-def analyze_graphs(folder: str=None, name2graph: dict=None):
+def create_graphs_from_path(input_path, output_dir, only_verbs_labels=False):
+    df = pd.read_csv(
+        input_path,
+        converters={
+            'parsed_labels': ast.literal_eval,
+            'parsed_sentence': ast.literal_eval
+        }
+    )
+    name2graph = split_df_create_graphs(
+        df,
+        output_dir,
+        only_verbs_labels=only_verbs_labels
+    )
+    return name2graph
+
+
+def analyze_graphs(folder: str=None, name2graph: dict=None, topn=10):
     '''
     TODO: please write function description and proper ValueError
     '''
@@ -508,19 +569,53 @@ def analyze_graphs(folder: str=None, name2graph: dict=None):
         graphs_path = glob(f'{folder}/*.json')
         name2graph = {}
         for path in graphs_path:
-            name = path.split('/')[-1].split('.')[0]
+            name = path.split('/')[-1].split('.')[0].replace('graph_', '')
             graph = read_graph_from_json(path)
             name2graph[name] = graph
     
     name2words = {}
     for name, graph in name2graph.items():
-        results = analyze_graph(graph)
+        results = analyze_graph(graph, topn=topn)
         words = [w for w, _ in results]
         name2words[name] = words
     
+    print(f"{'cop_c':<35}{'cop_m':<35}{'strike_m':<35}{'strike_c':<35}")
     for a, b, c, d in zip(
         name2words['cop_c'], name2words['cop_m'],
         name2words['strike_m'], name2words['strike_c']
     ):
-        print(f"{a} & {b} & {c} & {d} \\\\")
+        print(f"{a:<35}{b:<35}{c:<35}{d:<35}")
+
+
+def draw_ego_graph(
+        graph, center_node, org, output_dir, side, toggle_physics=True, undirected=True
+):
+    ego_graph = nx.ego_graph(graph, center_node, radius=1, undirected=undirected)
+    output_path = f'{output_dir}/{center_node}_{org}_{side}_ego.html'
+    draw_graph(
+        ego_graph,
+        output_filename=output_path,
+        toggle_physics=toggle_physics
+    )
+
+    # also save ego to json
+    output_json_path = f'{output_dir}/{center_node}_{org}_{side}_ego.json'
+    save_graph_to_json(ego_graph, path=output_json_path)
+    return ego_graph
+
+
+
+def make_ego_graphs(name2graph, center_node, output_dir, toggle_physics=True, undirected=True):
+    name2ego = {}
+    for name, graph in name2graph.items():
+        org, side = name.split('_')
+        try:
+            ego_graph = draw_ego_graph(
+                graph, center_node, org, output_dir, side, 
+                toggle_physics=toggle_physics, undirected=undirected
+            )
+            name2ego[name] = ego_graph
+        except Exception as e:
+            print(f"Could not draw ego graph for {name}: {e}")
     
+    return name2ego

@@ -33,9 +33,7 @@ def synt_parse_df(input_file='../experiments5/narr_finaldata_p11.tsv', output_di
     # filter out when the model fails to provide a narrative
     df = df[~df['Labels'].str.contains("clear narrative", case=False)]
     df = df[~df['Labels'].str.contains("no narrative", case=False)]
-    df = df[~df['Labels'].str.contains("I can't provide", case=False)]
-    df = df[~df['Labels'].str.contains("I can't extract", case=False)]
-    df = df[~df['Labels'].str.contains("I can't determine", case=False)]
+    df = df[~df['Labels'].str.contains("I can't", case=False)]
     df = df[~df['Labels'].str.contains("image does not", case=False)]
 
     # resolve coreferences: the resolution is quite primitive but resolves 94.889% of problems 
@@ -100,10 +98,11 @@ def main(
     for name, graph in name2graph.items():
         if name.endswith('_c'):
             draw_graph(
-                graph, notebook=False,
+                graph,
                 output_filename=os.path.join(output_dir, f'{name}_graph.html')
             )
             print('Graph is drawn and saved to:', os.path.join(output_dir, f'{name}_graph.html'))
+        
 
 if __name__ == "__main__":
     # Example usage; 194 components explain 90% variance

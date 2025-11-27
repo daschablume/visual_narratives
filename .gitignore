@@ -1,3 +1,6 @@
 __pycache__/
 temp*.py
 lib/
+notebooks/
+.DS_Store
+dependency_parsing_2.py
