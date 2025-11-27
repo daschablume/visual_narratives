@@ -28,6 +28,8 @@ NODES_TO_EXCLUDE = {
 
 # TODO: refactor this module, 
 #       graph creation and graph analysis should be two different things
+# TODO2: write descriptions for all the functions
+
 
 def create_graph(df: pd.DataFrame, only_verbs_labels=False):
     G = nx.MultiDiGraph()
@@ -343,6 +345,7 @@ def clean_multigraph(
     G, min_total_edge_weight:int=None, core:int=None, topn:int=None,
     only_core=False, only_topn=False
 ):
+    # TODO: write a desc or delete
     G_filtered = G
     if not only_core:
         if not min_total_edge_weight:
@@ -432,89 +435,6 @@ def k_core_weighted_multigraph(graph, k=2):
     return new_graph
 
 
-def create_graph_2(df: pd.DataFrame, only_verbs_labels=False):
-    G = nx.MultiDiGraph()
-
-    node2metadata = defaultdict(lambda: {'sentence_ids': set(), 'media_ids': set()})
-
-    for _, row in df.iterrows():
-        sentence_id = row['sentence_id']
-        parsed_labels = row['parsed_labels']
-        parsed_sentence = row['parsed_sentence']
-        # skip this row if there is a pronoun in the parsed_sentence
-        if any(word.lower() in PRONOUNS for word in parsed_sentence):
-            continue
-        pointer1, pointer2 = 0, 1
-        end_list = len(parsed_labels) - 1  # "." is always the last token
-
-        while pointer2 < end_list:
-            edge_label = ''
-            # here I assume that the first label is always a noun phrase (NP)
-            # and all the next times the first pointer points to the NP, since
-            # pointer1 = pointer2 in the end of the loop
-            
-            while pointer2 < end_list:
-                pos_tag = parsed_labels[pointer2]
-                if pos_tag.startswith('V') or pos_tag == "MD":
-                    # MD = modal verb
-                    edge_label = parsed_sentence[pointer2]
-                elif pos_tag.isalpha() and not parsed_labels[pointer2] in NOT_NODE_LABELS:
-                    break
-                else:
-                    if not edge_label and pos_tag != "DT" and not only_verbs_labels:
-                        # add edge label as a preposition only if it was not set by a verb
-                        # and do not set it for a determiner (DT)
-                        edge_label = parsed_sentence[pointer2]
-                    elif pos_tag in ("RB", "MD") or pos_tag.startswith("V"):
-                        # glue "not" and modals to a verb
-                        edge_label += ' ' + parsed_sentence[pointer2]
-                pointer2 += 1
-            node1, node2  = parsed_sentence[pointer1], parsed_sentence[pointer2]
-            pointer1 = pointer2
-            pointer2 = pointer1 + 1
-
-            # check whether this edge already exists in the graph
-            edge_found = False
-            if G.has_edge(node1, node2):
-                for _, edge_data in G[node1][node2].items():
-                    if edge_data.get("label") == edge_label:
-                        # if found and has the same label,
-                        # increment the weight and add sentence_id and media_id
-                        edge_data["weight"] += 1
-                        edge_data["sentence_ids"].add(sentence_id)
-                        edge_found = True
-                        break
-
-            # If no matching edge found, add new edge
-            if not edge_found:
-                G.add_edge(
-                    node1,
-                    node2,
-                    label=edge_label,
-                    weight=1,
-                    sentence_ids={sentence_id},
-                    pos=pos_tag
-                )
-            
-            # Add sentence_id and media_id to both nodes' metadata
-            for node in [node1, node2]:
-                node2metadata[node]['sentence_ids'].add(sentence_id)
-
-    for node, metadata in node2metadata.items():
-        if node in G:
-            G.nodes[node]['sentence_ids'] = list(metadata['sentence_ids'])
-            G.nodes[node]['media_ids'] = list(metadata['media_ids'])
-    
-    # convert sets to lists for serialization
-    for _, _, _, data in G.edges(keys=True, data=True):
-        if "sentence_ids" in data:
-            data["sentence_ids"] = list(data["sentence_ids"])
-        if "media_ids" in data:
-            data["media_ids"] = list(data["media_ids"])
-    
-    return G
-
-
 def split_df_create_graphs(merged_df, output_dir, only_verbs_labels=False):
     '''
     Here: merged_df is an updated df together with event types.
@@ -588,7 +508,8 @@ def analyze_graphs(folder: str=None, name2graph: dict=None, topn=10):
 
 
 def draw_ego_graph(
-        graph, center_node, org, output_dir, side, toggle_physics=True, undirected=True
+    graph, center_node, org, output_dir, side, 
+    toggle_physics=True, undirected=True
 ):
     ego_graph = nx.ego_graph(graph, center_node, radius=1, undirected=undirected)
     output_path = f'{output_dir}/{center_node}_{org}_{side}_ego.html'
@@ -604,8 +525,10 @@ def draw_ego_graph(
     return ego_graph
 
 
-
-def make_ego_graphs(name2graph, center_node, output_dir, toggle_physics=True, undirected=True):
+def draw_ego_graphs(
+    name2graph, center_node, output_dir, 
+    toggle_physics=True, undirected=True
+):
     name2ego = {}
     for name, graph in name2graph.items():
         org, side = name.split('_')
