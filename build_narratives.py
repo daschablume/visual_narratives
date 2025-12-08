@@ -17,8 +17,7 @@ OUTPUT_DIR = '../experiments5'
 PCA_ARGS = {'n_components': 50, 'svd_solver': 'full'}
 
 
-def synt_parse_df(input_file='../experiments5/narr_finaldata_p11.tsv', output_dir="../experiments5"):
-    from synt_parsing import parse_sentence
+def synt_parse_df(input_file='../experiments9/prompt_with_text_step2.tsv', output_dir="../experiments9"):
     '''
     This should be a part of main function.
     However, now I can't install "benepar" package.
@@ -49,6 +48,11 @@ def synt_parse_df(input_file='../experiments5/narr_finaldata_p11.tsv', output_di
     df_sentences = df_sentences[df_sentences['sentence'].str.len() > 2]
     df_sentences.to_csv(os.path.join(output_dir, 'sentences.csv'), index=False)
 
+
+def parse_sentences_in_df(input_file='../experiments9/sentences.csv', output_dir="../experiments9"):
+    from synt_parsing import parse_sentence
+
+    df_sentences = pd.read_csv(input_file)
     # TODO: add parsing logic?
     output_file = os.path.join(output_dir, 'parsed_sentences.csv')
     # write to csv in order not to overload the memory
@@ -82,6 +86,8 @@ def main(
     )
     sentences_df['path'] = sentences_df['Dir'].astype(str) + "/" + sentences_df['ImageID'].astype(str)
 
+    # change a misclassified example (should belong to countermovement but was classified as movement)
+
     # TODO: fix calling NLP from spacy on each verb + I do cluster verbs now
     process_and_cluster_phrases(sentences_df, output_dir, pca_args)
     print(f"Roles clustered and saved to {output_dir}")
@@ -91,6 +97,14 @@ def main(
     # merging with data 
     data = pd.read_csv(f'{output_dir}/data.tsv', sep='\t')
     merged_df = updated_roles_df.merge(data, on="path", how="inner")
+
+    merged_df.loc[merged_df['path'] == 'data/media_m1/0/0/8/22.jpg', 'usr_type'] = 'c'
+    merged_df.loc[merged_df['path'] == 'data/media_m1/0/0/22/1.jpg', 'usr_type'] = 'c'
+    merged_df.loc[merged_df['path'] == 'data/media_m2/0/15/87/13.jpg', 'usr_type'] = 'c'
+    merged_df.loc[merged_df['path'] == 'data/media_m1/0/10/5/23.png', 'usr_type'] = 'c'
+
+    # remove this image cause its implications is unclear
+    merged_df = merged_df[merged_df['path'] != 'data/media_m1/0/9/87/44.jpg']
 
     merged_df.to_csv(os.path.join(output_dir, 'updated_data.csv'), index=False)
 
@@ -107,7 +121,6 @@ def main(
 if __name__ == "__main__":
     # Example usage; 194 components explain 90% variance
     main(
-        input_file=f'../experiments6/parsed_sentences.csv', 
-        output_dir='../experiments6', pca_args={'n_components': 194, 'svd_solver': 'full'}
+        input_file=f'../experiments9/parsed_sentences.csv', 
+        output_dir='../experiments9', pca_args={'n_components': 50, 'svd_solver': 'full'}
 )
-

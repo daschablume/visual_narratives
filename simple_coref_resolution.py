@@ -16,7 +16,7 @@ def simple_coref_resolution(text):
     
     for span in spans:
         # They/It capitalized to make sure they are not replaced inside of a sentence
-        if span.text == 'they' or span.text == 'it':
+        if span.text in ("They", "It", "She", "He"):
             text = text.replace(span.text, spans[0].text)
     
     return text

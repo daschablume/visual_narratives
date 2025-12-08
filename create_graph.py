@@ -18,20 +18,22 @@ from pyvis import network as net
 NOT_NODE_LABELS = (
     'WHNP', 'TO', 'WHADVP', 'CC', 'RP', 'PRT', 'IN', 'RB', 'MD', 'DT'
 )
-PRONOUNS = ['she', 'her', 'they', 'them', 'he', 'him', 'his', 'its']
 
 NODES_TO_EXCLUDE = {
     'The image', 'The message', 'This image', 
     "This", "The images", 'The scene', "the country",
-    'There', "The narrative", "others", "something", ''
+    'There', "The narrative", "others", "something", '', 'part',
+    'less', 'co', "A man", "Despite", 'she', 'her', 'they', 'them', 'he', 
+    'him', 'his', 'its', 'it'
 }
 
 # TODO: refactor this module, 
 #       graph creation and graph analysis should be two different things
 # TODO2: write descriptions for all the functions
+# TODO3: creating of a graph now is a complete mess, rewrite it properly with testsm refactor.
 
 
-def create_graph(df: pd.DataFrame, only_verbs_labels=False):
+def create_graph(df: pd.DataFrame, only_verbs_labels=True):
     G = nx.MultiDiGraph()
 
     node2metadata = defaultdict(lambda: {'sentence_ids': set(), 'media_ids': set()})
@@ -41,9 +43,6 @@ def create_graph(df: pd.DataFrame, only_verbs_labels=False):
         media_id = row['media_id']
         parsed_labels = row['parsed_labels']
         parsed_sentence = row['parsed_sentence']
-        # skip this row if there is a pronoun in the parsed_sentence
-        if any(word.lower() in PRONOUNS for word in parsed_sentence):
-            continue
         pointer1, pointer2 = 0, 1
         end_list = len(parsed_labels) - 1  # "." is always the last token
 
@@ -61,7 +60,7 @@ def create_graph(df: pd.DataFrame, only_verbs_labels=False):
                 elif pos_tag.isalpha() and not parsed_labels[pointer2] in NOT_NODE_LABELS:
                     break
                 else:
-                    if not edge_label and pos_tag != "DT" and not only_verbs_labels:
+                    if not edge_label and pos_tag != "DT":
                         # add edge label as a preposition only if it was not set by a verb
                         # and do not set it for a determiner (DT)
                         edge_label = parsed_sentence[pointer2]
@@ -121,7 +120,73 @@ def create_graph(df: pd.DataFrame, only_verbs_labels=False):
         if "media_ids" in data:
             data["media_ids"] = list(data["media_ids"])
     
+    if only_verbs_labels:
+        to_remove = []
+        for u, v, key, data in G.edges(keys=True, data=True):
+            if not data.get("pos", "").startswith("V"):
+                to_remove.append((u, v, key)) 
+        
+        G.remove_edges_from(to_remove)
+        
+        # Remove isolated nodes
+        isolated = list(nx.isolates(G))
+        G.remove_nodes_from(isolated)
+    
     return G
+
+
+def _find_all_triplets(parsed_labels, parsed_sentence):
+    '''
+    This is an attempt of refactoring: 
+    I need to split graph creating from triplet extraction.
+    The func create_graph is super messy, must be rewritten.
+    '''
+    triples = []
+
+    pointer1, pointer2 = 0, 1
+    end_list = len(parsed_labels) - 1  # "." is always the last token
+    node1 = parsed_sentence[pointer1]
+    node2 = ''
+
+    while pointer2 < end_list:
+        edge_label = ''
+        # here I assume that the first label is always a noun phrase (NP)
+        # and all the next times the first pointer points to the NP, since
+        # pointer1 = pointer2 in the end of the loop
+        
+        while pointer2 < end_list:
+            pos_tag = parsed_labels[pointer2]
+            if not edge_label and (pos_tag.startswith('V') or pos_tag == "MD"):
+                # MD = modal verb
+                edge_label = parsed_sentence[pointer2]
+            elif pos_tag.isalpha() and not parsed_labels[pointer2] in NOT_NODE_LABELS:
+                if node2:
+                    node2 += ' ' + parsed_sentence[pointer2]
+                else:
+                    node2 += parsed_sentence[pointer2]
+            elif parsed_labels[pointer2] in NOT_NODE_LABELS or not pos_tag.isalpha():
+                pointer2 += 1
+                break
+            #else:
+                #if not edge_label and pos_tag != "DT":
+                    # add edge label as a preposition only if it was not set by a verb
+                    # and do not set it for a determiner (DT)
+                    #edge_label = parsed_sentence[pointer2]
+                #elif pos_tag in ("RB", "MD") or pos_tag.startswith("V"):
+                    # glue "not" and modals to a verb
+                    #edge_label += ' ' + parsed_sentence[pointer2]
+            pointer2 += 1
+        pointer1 = pointer2
+        pointer2 = pointer1 + 1
+        # skip nodes in the exclusion list or if they contain "their"
+        if {node1, node2} & NODES_TO_EXCLUDE or any('their' in n.lower() for n in (node1, node2)):
+            continue
+
+        if parsed_labels[pointer1-1] == 'ADVP' or parsed_labels[pointer2-1] == 'ADVP':
+            # skip "often" etc. as a node
+            continue
+        triples.append((node1, edge_label, node2))
+    return triples
 
 
 def draw_graph(
@@ -162,9 +227,16 @@ def draw_graph(
     max_degree = max(degrees.values())
     min_size = 15
     max_size = 100  # scaling leads to huge nodes
+    min_font = 12
+    max_font = 40
+    
     for node in networkx_graph.nodes():
         normalized_size = min_size + (degrees[node] / max_degree) * (max_size - min_size)
         networkx_graph.nodes[node]['size'] = normalized_size
+        
+        # Add font size scaling based on node size
+        font_size = min_font + (normalized_size - min_size) / (max_size - min_size) * (max_font - min_font)
+        networkx_graph.nodes[node]['font'] = {'size': int(font_size)}
 
     betweenness = nx.betweenness_centrality(networkx_graph, weight='weight')
     # Normalize betweenness values to [0,1] for color mapping
@@ -258,8 +330,12 @@ def print_narratives(node, graph):
         print(f"{source} --{edge_label}({edge_weight})--> {target}")
 
 
-def extract_communities(graph):
-    return louvain_communities(graph, weight='weight')
+def get_top_narratives(graph):
+    pass
+
+
+def extract_communities(graph, seed=42):
+    return louvain_communities(graph, weight='weight', seed=seed)
 
 
 def make_subgraph_from_community(graph, community: set):
@@ -435,7 +511,7 @@ def k_core_weighted_multigraph(graph, k=2):
     return new_graph
 
 
-def split_df_create_graphs(merged_df, output_dir, only_verbs_labels=False):
+def split_df_create_graphs(merged_df, output_dir, only_verbs_labels=True):
     '''
     Here: merged_df is an updated df together with event types.
     TODO: write a proper description, rename variables
@@ -461,7 +537,7 @@ def split_df_create_graphs(merged_df, output_dir, only_verbs_labels=False):
     return name2graph
 
 
-def create_graphs_from_path(input_path, output_dir, only_verbs_labels=False):
+def create_graphs_from_path(input_path, output_dir, only_verbs_labels=True):
     df = pd.read_csv(
         input_path,
         converters={
@@ -505,6 +581,8 @@ def analyze_graphs(folder: str=None, name2graph: dict=None, topn=10):
         name2words['strike_m'], name2words['strike_c']
     ):
         print(f"{a:<35}{b:<35}{c:<35}{d:<35}")
+    
+    return name2words
 
 
 def draw_ego_graph(
@@ -542,3 +620,114 @@ def draw_ego_graphs(
             print(f"Could not draw ego graph for {name}: {e}")
     
     return name2ego
+
+
+def get_strength(graph, topn=20) -> tuple[
+    dict[str, int], dict[str, int], dict[str, int]
+]:
+    '''
+    Returns a top n nodes by strength (weighted degree), in-strength and out-strength.
+    Non-normalized values.
+    '''
+    def _sort_di_view(item):
+        return dict(sorted(item, key=lambda x: x[1], reverse=True)[:topn])
+    strength = _sort_di_view(graph.degree(weight='weight'))
+    in_strength = _sort_di_view(graph.in_degree(weight='weight'))
+    out_strength = _sort_di_view(graph.out_degree(weight='weight'))
+    return strength, in_strength, out_strength
+
+
+def get_betweeness(graph, topn=20) -> list[tuple[str, float]]:
+    '''
+    Returns a top n nodes by betweenness centrality -- weighted measure.
+    OBS! Slow.
+    Normalized values.
+    '''
+    betweenness = nx.betweenness_centrality(graph, weight='weight')
+    return dict(sorted(betweenness.items(), key=lambda x: x[1], reverse=True)[:20])
+
+
+def get_strength_and_betweeness(graph, topn=20):
+    strength, in_strength, out_strength = get_strength(graph, topn=topn)
+    betweenness = get_betweeness(graph, topn=topn)
+    return strength, in_strength, out_strength, betweenness
+
+
+def get_strength_betweeness_multiple(name2graph: dict, topn=20):
+    '''
+    Call get_strength_and_betweeness for multiple graphs.
+    Returns a name2metrics_dict dictionary.
+    '''
+    name2metrics_dict = {}
+    for name, graph in name2graph.items():
+        metrics = get_strength_and_betweeness(graph, topn=20)
+        name2metrics_dict[name] = {
+            'strength': metrics[0],
+            'in_strength': metrics[1],
+            'out_strength': metrics[2],
+            'betweenness': metrics[3]
+        }
+    return name2metrics_dict
+
+
+def print_metrics_table(metrics: dict, with_numbers=False):
+    '''
+    Prints a table of metrics.
+    With_numbers: if True, returns the numbers for each metric. 
+    Otherwise returns a 4-column table, the values in columns ordered from
+    the highest to the lowest. 
+    '''
+    columns = list(metrics.keys())
+    header = " ".join(f"{col:<30}" for col in columns)
+    print(header)   
+    print("-" * 120)
+
+    all_keys = [list(metrics[col].keys()) for col in columns]
+    max_len = max(len(keys) for keys in all_keys)
+
+    # Print rows
+    for i in range(max_len):
+        row_items = []
+        for col_idx, col in enumerate(columns):
+            key = all_keys[col_idx][i]
+            if with_numbers:
+                item = f"{key}: {metrics[col][key]}"
+                row_items.append(f"{item:<30}")
+            else:
+                row_items.append(f"{key:<30}")
+            
+        print(" ".join(row_items))
+
+
+def ego_without_ego(graph, center_node):
+    ego_graph = nx.ego_graph(graph, center_node, radius=1)
+    ego_graph.remove_node(center_node)
+    return ego_graph
+
+
+def make_and_draw_ego_without_ego(graph, center_node, side, event, dir='../experiments9/updated_graphs/ego_graphs'):
+    ego_graph = ego_without_ego(graph, center_node)
+    output_path = f'{dir}/{center_node}_{event}_{side}_ego_no_ego.html'
+    draw_graph(
+        ego_graph,
+        output_filename=output_path,
+    )
+    return ego_graph
+
+
+def make_and_draw_multiple_egoless(name2graph, ego, dir):
+    name2egoless = {}
+    for name, graph in name2graph.items():
+        if "full" in name:
+            continue
+        event, side = name.split('_')
+        try:
+            graph = make_and_draw_ego_without_ego(graph, ego, side, event, dir=dir)
+            name2egoless[name] = graph
+            print(f"Drew ego-less graph for {name}_{event}_{side}")
+        except Exception as e:
+            print(f"Could not draw ego-less graph for {name}: {e}")
+    return name2egoless
+
+
+# remove isolates: egoless_strike_m.remove_nodes_from(list(nx.isolates(egoless_strike_m)))
