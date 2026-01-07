@@ -4,3 +4,5 @@ lib/
 notebooks/
 .DS_Store
 dependency_parsing_2.py
+srl-pipeline/
+dep_pipeline/
