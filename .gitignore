@@ -6,3 +6,4 @@ notebooks/
 dependency_parsing_2.py
 srl-pipeline/
 dep_pipeline/
+claude_*.py
