@@ -3,8 +3,8 @@ temp/
 lib/
 notebooks/
 .DS_Store
-dependency_parsing_2.py
 srl-pipeline/
 dep_pipeline/
-claude_*.py
+plot_communities/
 old_code/
+viz_graph_exp/
