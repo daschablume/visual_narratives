@@ -1,10 +1,14 @@
-Usage:
-* change the input and output directories in build_narratives.py
-* `python build_narratives.py`.
+# 1. Create the conda environment with Python 3.12
+conda create -n visnarr_env python=3.12 -y
 
-> P.S. you need (still...) The Relatio package preinstalled to use the whole pipeline (for the clustering part).
+# 2. Activate it
+conda activate visnarr_env
 
-![frog](https://github.com/user-attachments/assets/3b8c81e1-9c23-4dd0-a13c-fad6f8387e3e)
+# 3. Install all packages with pip in the same env
+python -m pip install -r requirements.txt
 
+# 4. Install spacy model
+python -m spacy download en_core_web_sm
 
-
+# 5. Run code
+python main.py
