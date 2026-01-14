@@ -1,0 +1,11 @@
+spacy==3.8.11
+pandas==2.3.3
+scikit-learn==1.6.1
+tqdm==4.67.1
+sentence_transformers==5.2.0
+numpy<2
+networkx==3.6.1
+matplotlib==3.10.0
+pyvis==0.3.2
+nltk==3.9.1
+benepar==0.2.0
