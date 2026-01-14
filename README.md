@@ -1,7 +1,12 @@
 ### This is the repo for the article `A Novel Method for the Computational Extraction and Analysis of Visual Narratives`.
+
+<img width="618" height="568" alt="traveling_narr_cop_m" src="https://github.com/user-attachments/assets/00ff0540-9f61-4272-a419-746f8ecf756c" />
+
 This repo contains all the code used for extracting narratives. 
 The main logic is invoked by the 'main.py' script.
 The creation of temporal narratives is in a separate module with the same name.
+
+
 
 ### Usage
 **1. Create the conda environment with Python 3.12**
@@ -23,5 +28,6 @@ python -m spacy download en_core_web_sm
 **5. Run code**
 
 python main.py
+
 
 
