@@ -1,5 +1,4 @@
-### This is the repo for the article `A Novel Method for the Computational Extraction and Analysis of Visual Narratives`.
-
+### Extracting narratives from visual data
 <img width="618" height="568" alt="traveling_narr_cop_m" src="https://github.com/user-attachments/assets/00ff0540-9f61-4272-a419-746f8ecf756c" />
 
 This repo contains all the code used for extracting narratives. 
@@ -28,6 +27,7 @@ python -m spacy download en_core_web_sm
 **5. Run code**
 
 python main.py
+
 
 
 
